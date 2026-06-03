@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bonalti Pipeline Dashboard</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="intelligence-shell">
+      <aside class="company-sidebar">
+        <div class="side-brand">
+          <img src="/assets/bonalti-logo.png" alt="Bonalti">
+          <strong>Sales Intelligence</strong>
+        </div>
+
+        <nav class="company-nav" id="companyNav" aria-label="Companies">
+          <button class="active south" type="button" data-company-select="00000000-0000-0000-0000-000000000001">
+            <img src="/assets/south-texas-builders-logo.png" alt="">
+            <span>South Texas Builders</span>
+            <strong id="southCount">0</strong>
+          </button>
+          <button class="cuates" type="button" data-company-select="00000000-0000-0000-0000-000000000002">
+            <img src="/assets/cuates-construction-logo.png" alt="">
+            <span>Cuates Construction</span>
+            <strong id="cuatesCount">0</strong>
+          </button>
+          <button class="lending" type="button" data-company-select="lending">
+            <span class="logo-fallback">BL</span>
+            <span>Bonalti Lending</span>
+            <strong id="lendingCount">0</strong>
+          </button>
+        </nav>
+
+        <div class="side-sync" id="sideSync">Cloud synced</div>
+      </aside>
+
+      <div class="main-area">
+        <header class="department-header">
+          <div class="department-title">
+            <img id="headerCompanyLogo" src="/assets/south-texas-builders-logo.png" alt="">
+            <div>
+              <h1 id="departmentHeadline">Sales Closers <span>Dept</span></h1>
+              <p>Person in charge: <strong>Claudia Garza</strong></p>
+              <p id="headerSubtitle" class="header-subtitle">South Texas Builders · GHL Status Board</p>
+            </div>
+          </div>
+
+          <div class="header-controls">
+            <div class="owner-control">
+              <span>Updated by</span>
+              <strong>Owner</strong>
+            </div>
+            <div class="cloud-pill" id="cloudPill">Cloud synced</div>
+          </div>
+        </header>
+
+        <main class="page-shell">
+          <section class="range-panel">
+            <div class="range-top">
+              <div class="range-buttons">
+                <button class="active" type="button" data-period-button="selectedMonth">This Month</button>
+                <button type="button" data-period-button="lastMonth">Last Month</button>
+                <button type="button" data-period-button="thisYear">This Year</button>
+                <button type="button" data-period-button="lastYear">Last Year</button>
+                <button type="button" data-period-button="salesWeek">Sales Week</button>
+                <button type="button" data-period-button="all">Custom</button>
+              </div>
+              <button id="refreshButton" type="button">Refresh</button>
+            </div>
+            <div class="week-picker">
+              <label>
+                <span>Week</span>
+                <select id="weekFilter"></select>
+              </label>
+              <div id="weekLabel" class="week-label">Select a week</div>
+            </div>
+            <div class="date-inputs">
+              <label>
+                <span>From</span>
+                <input id="fromDate" type="date">
+              </label>
+              <label>
+                <span>To</span>
+                <input id="toDate" type="date">
+              </label>
+              <button id="todayButton" type="button">Apply</button>
+            </div>
+            <div class="source-pills">
+              <span>Supabase: live</span>
+              <span id="ghlStatusPill">GHL: pending API</span>
+              <span id="rangeLabel">This Month</span>
+              <button id="ghlSyncButton" type="button">Sync GHL</button>
+            </div>
+          </section>
+
+          <section id="setupNotice" class="setup-notice" hidden>
+            <strong>CRM tables needed</strong>
+            <span>Run <code>supabase/closer_crm_schema.sql</code> in Supabase to enable pipeline, notes, and GHL sync tables.</span>
+          </section>
+
+          <section class="metrics-grid" id="metricsGrid"></section>
+
+          <section class="filters-row">
+            <label class="search-field">
+              <span>Search</span>
+              <input id="searchFilter" type="search" placeholder="Search leads, notes, closer">
+            </label>
+            <label class="hidden-control">
+              <span>Meeting type</span>
+              <select id="typeFilter">
+                <option value="all">All meetings</option>
+                <option value="lender">Lender meetings</option>
+                <option value="construction">Construction meetings</option>
+              </select>
+            </label>
+            <label>
+              <span>Period</span>
+              <select id="periodFilter">
+                <option value="selectedMonth">Selected month</option>
+                <option value="lastMonth">Last month</option>
+                <option value="thisYear">This year</option>
+                <option value="lastYear">Last year</option>
+                <option value="salesWeek">Sales week</option>
+                <option value="today">Working day</option>
+                <option value="recent30">Recent 30 days</option>
+                <option value="all">All history</option>
+              </select>
+            </label>
+          </section>
+
+          <div class="hidden-control">
+          <select id="companyFilter">
+            <option value="00000000-0000-0000-0000-000000000001">South Texas Builders</option>
+            <option value="00000000-0000-0000-0000-000000000002">Cuates Construction</option>
+            <option value="lending">Bonalti Lending</option>
+          </select>
+          </div>
+
+          <section id="contentArea"></section>
+        </main>
+      </div>
+    </div>
+
+    <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+    <aside class="detail-drawer" id="detailDrawer" aria-hidden="true">
+      <div class="drawer-head">
+        <div>
+          <p id="drawerMeta" class="meta-line"></p>
+          <h2 id="drawerTitle">Lead</h2>
+        </div>
+        <button id="closeDrawer" class="icon-button" type="button" aria-label="Close details">X</button>
+      </div>
+
+      <div class="drawer-section">
+        <div id="drawerStatusRow" class="status-row"></div>
+        <div id="setterNotes" class="setter-notes"></div>
+      </div>
+
+      <form id="pipelineForm" class="pipeline-form">
+        <input type="hidden" name="meeting_id">
+        <input type="hidden" name="company_id">
+        <div class="form-grid">
+          <label>
+            <span>Closer</span>
+            <input name="closer_name" type="text" placeholder="Closer name">
+          </label>
+          <label>
+            <span>GHL stage</span>
+            <select name="pipeline_stage">
+              <option value="reunion_agendada_oficina">Reunion agendada oficina</option>
+              <option value="reunion_agendada_celular">Reunion agendada celular</option>
+              <option value="reunion_para_showing">Reunion para showing</option>
+              <option value="no_show">No show</option>
+              <option value="contactado_con_tarea">Contactado con tarea</option>
+              <option value="en_proceso_aprobacion">En proceso de aprobacion</option>
+              <option value="lead_potencial">Lead potencial</option>
+              <option value="closed">Closed</option>
+              <option value="not_interested">Not interested</option>
+              <option value="did_not_approve_mortgage_loan">Did not approve mortgage loan</option>
+            </select>
+          </label>
+          <label>
+            <span>Closer status</span>
+            <select name="closer_status">
+              <option value="pending">Pending</option>
+              <option value="closed">Closed</option>
+              <option value="lost">Lost</option>
+            </select>
+          </label>
+          <label>
+            <span>Meeting status</span>
+            <select name="meeting_status">
+              <option value="agendada">Agendada</option>
+              <option value="atendida">Atendida</option>
+              <option value="no_show">No show</option>
+              <option value="reagendo">Reagendo</option>
+              <option value="descalificado">Descalificado</option>
+              <option value="cerrado">Cerrado</option>
+            </select>
+          </label>
+          <label>
+            <span>Follow-up date</span>
+            <input name="follow_up_date" type="date">
+          </label>
+          <label>
+            <span>Closed date</span>
+            <input name="closed_date" type="date">
+          </label>
+          <label>
+            <span>Deal value</span>
+            <input name="deal_value" type="number" min="0" step="0.01" placeholder="0.00">
+          </label>
+          <label>
+            <span>Lost reason</span>
+            <input name="lost_reason" type="text" placeholder="Reason">
+          </label>
+        </div>
+        <label>
+          <span>Manager / closer summary</span>
+          <textarea name="closer_notes" rows="3" placeholder="Current summary"></textarea>
+        </label>
+        <div class="form-actions">
+          <button type="submit">Save pipeline</button>
+          <span id="saveState" class="save-state"></span>
+        </div>
+      </form>
+
+      <form id="noteForm" class="note-form">
+        <input type="hidden" name="meeting_id">
+        <input type="hidden" name="company_id">
+        <div class="note-row">
+          <input name="created_by_name" type="text" value="Claudia Garza" placeholder="Name">
+          <select name="note_type">
+            <option value="closer">Closer note</option>
+            <option value="follow_up">Follow-up</option>
+            <option value="status">Status note</option>
+          </select>
+        </div>
+        <textarea name="note_text" rows="3" placeholder="Add a new note"></textarea>
+        <div class="form-actions">
+          <button type="submit">Add note</button>
+          <span id="noteState" class="note-state"></span>
+        </div>
+      </form>
+
+      <div class="notes-list" id="notesList"></div>
+    </aside>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

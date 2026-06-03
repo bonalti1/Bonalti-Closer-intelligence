@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: bonalti-closer-crm
+    runtime: node
+    plan: free
+    buildCommand: ""
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GHL_LOCATION_ID
+        sync: false
+      - key: GHL_API_KEY
+        sync: false
+      - key: GHL_BASE_URL
+        value: https://services.leadconnectorhq.com
+      - key: GHL_API_VERSION
+        value: 2021-07-28
+      - key: CRM_START_DATE
+        value: 2026-06-01
+
+  - type: cron
+    name: bonalti-closer-crm-ghl-sync
+    runtime: node
+    schedule: "*/15 * * * *"
+    buildCommand: ""
+    startCommand: npm run sync:ghl
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: CRM_SYNC_URL
+        value: https://bonalti-closer-crm.onrender.com/api/ghl/sync
