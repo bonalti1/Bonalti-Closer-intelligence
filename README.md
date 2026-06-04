@@ -23,7 +23,7 @@ The browser never receives the service role key. All Supabase writes go through 
 
 ## GHL setup
 
-The app is ready for GHL data, but the final sync needs the real GoHighLevel endpoint/auth details.
+The app syncs GoHighLevel opportunities into the shared Supabase `meetings` table. South Texas Builders and Cuates Construction pipeline stage IDs are mapped into the shared meeting statuses.
 
 Server-only environment values:
 
@@ -34,15 +34,22 @@ GHL_BASE_URL=https://services.leadconnectorhq.com
 GHL_API_VERSION=2021-07-28
 GHL_SYNC_LIMIT=100
 CRM_START_DATE=2026-06-01
+CRM_SYNC_SECRET=
 ```
 
 Current GHL endpoints:
 
 - `GET /api/ghl/status` checks whether the server has GHL config.
-- `POST /api/ghl/sync` pulls opportunities from GHL and stores matched rows in `ghl_lead_snapshots`.
+- `POST /api/ghl/sync` pulls opportunities from GHL, stores matched rows in `ghl_lead_snapshots`, and updates shared `meetings.status`.
 - `POST /api/ghl/import` accepts test snapshots and saves them to `ghl_lead_snapshots`.
 
-The first sync pass matches GHL opportunities to existing Supabase meetings by client name. If GHL webhooks or custom fields later provide the Supabase meeting ID, the match can become exact.
+Sync matching checks existing GHL contact/opportunity IDs first, then matches by client name inside the correct company. If GHL webhooks or custom fields later provide the Supabase meeting ID, the match can become exact.
+
+If `CRM_SYNC_SECRET` is set on the web service, callers must include it as:
+
+```bash
+X-CRM-Sync-Secret: your-secret-value
+```
 
 ## Scheduled sync
 
@@ -56,6 +63,7 @@ The cron job calls:
 
 ```bash
 CRM_SYNC_URL=https://bonalti-closer-crm.onrender.com/api/ghl/sync
+CRM_SYNC_SECRET=the-same-secret-as-the-web-service
 ```
 
 If the public Render service name changes, update `CRM_SYNC_URL` in Render.

@@ -21,12 +21,44 @@ const config = {
   ghlApiVersion: process.env.GHL_API_VERSION || "2021-07-28",
   ghlSyncLimit: Number(process.env.GHL_SYNC_LIMIT || 100),
   crmStartDate: process.env.CRM_START_DATE || "2026-06-01",
+  crmSyncSecret: process.env.CRM_SYNC_SECRET || "",
 };
 
 const companies = [
   { id: "00000000-0000-0000-0000-000000000001", name: "South Texas Builders", slug: "south", brand_color: "#172b62", active: true },
   { id: "00000000-0000-0000-0000-000000000002", name: "Cuates Construction", slug: "cuates", brand_color: "#d98646", active: true },
 ];
+
+const COMPANY_IDS = {
+  south: "00000000-0000-0000-0000-000000000001",
+  cuates: "00000000-0000-0000-0000-000000000002",
+};
+
+const GHL_STAGE_MAPPINGS = {
+  "3987b9bf-4c54-4cc7-8e95-2122939303e0": { companyId: COMPANY_IDS.south, pipelineId: "wFodyxJC1Xl3GR7IfKRj", label: "Reunion Agendada Oficina", crmStage: "reunion_agendada_oficina", meetingStatus: "agendada" },
+  "bb8e6421-636b-4f4e-86c8-aacc060bb9da": { companyId: COMPANY_IDS.south, pipelineId: "wFodyxJC1Xl3GR7IfKRj", label: "Reunion Agendada Celular", crmStage: "reunion_agendada_celular", meetingStatus: "agendada" },
+  "37f50558-74e5-4786-bb5e-ddb7897243c3": { companyId: COMPANY_IDS.south, pipelineId: "wFodyxJC1Xl3GR7IfKRj", label: "Reunion Para Showing", crmStage: "reunion_para_showing", meetingStatus: "agendada" },
+  "fd9f77e3-0b42-4f52-822d-4c81bdd0b2bc": { companyId: COMPANY_IDS.south, pipelineId: "wFodyxJC1Xl3GR7IfKRj", label: "No Show", crmStage: "no_show", meetingStatus: "no_show" },
+  "7ce34719-2971-476b-a5be-c9bdafa1becd": { companyId: COMPANY_IDS.south, pipelineId: "wFodyxJC1Xl3GR7IfKRj", label: "Atendido (Warm)", crmStage: "contactado_con_tarea", meetingStatus: "atendida" },
+  "538c03c5-c494-4a3f-b5ab-c9e6fd3b395b": { companyId: COMPANY_IDS.south, pipelineId: "wFodyxJC1Xl3GR7IfKRj", label: "Seguimiento Mensual", crmStage: "contactado_con_tarea", meetingStatus: "reagendo" },
+  "08d25468-79e2-42ca-be95-df7bad2a57cc": { companyId: COMPANY_IDS.south, pipelineId: "wFodyxJC1Xl3GR7IfKRj", label: "En Proceso De Aprobacion", crmStage: "en_proceso_aprobacion", meetingStatus: "atendida" },
+  "127e86fa-b2c6-4870-9895-2a6909be5040": { companyId: COMPANY_IDS.south, pipelineId: "wFodyxJC1Xl3GR7IfKRj", label: "Lead Potencial", crmStage: "lead_potencial", meetingStatus: "atendida" },
+  "b394094d-05d4-4707-ad6a-5ab94a39005e": { companyId: COMPANY_IDS.south, pipelineId: "wFodyxJC1Xl3GR7IfKRj", label: "Closed", crmStage: "closed", meetingStatus: "cerrado" },
+  "34b857fd-a093-433a-b61d-048cc9150181": { companyId: COMPANY_IDS.south, pipelineId: "wFodyxJC1Xl3GR7IfKRj", label: "Did Not Approve Mortgage Loan", crmStage: "did_not_approve_mortgage_loan", meetingStatus: "descalificado" },
+  "217bf850-88bb-43e2-846a-3ec6ef567223": { companyId: COMPANY_IDS.south, pipelineId: "wFodyxJC1Xl3GR7IfKRj", label: "Not Interested", crmStage: "not_interested", meetingStatus: "descalificado" },
+
+  "9a328de3-c5ee-4e29-bb50-3223e23fa4b3": { companyId: COMPANY_IDS.cuates, pipelineId: "qG9FytqduSLUwRedu8Zb", label: "Reunion Agendada Oficina", crmStage: "reunion_agendada_oficina", meetingStatus: "agendada" },
+  "575921fe-2457-489d-a16e-d2478a6054ce": { companyId: COMPANY_IDS.cuates, pipelineId: "qG9FytqduSLUwRedu8Zb", label: "Reunion Agendada Celular", crmStage: "reunion_agendada_celular", meetingStatus: "agendada" },
+  "90fd23f4-bfd7-4e57-8ce1-8f979b34fc4e": { companyId: COMPANY_IDS.cuates, pipelineId: "qG9FytqduSLUwRedu8Zb", label: "Reunion Para Showing", crmStage: "reunion_para_showing", meetingStatus: "agendada" },
+  "a79e5ad2-9ffc-4867-9e58-25279675c273": { companyId: COMPANY_IDS.cuates, pipelineId: "qG9FytqduSLUwRedu8Zb", label: "No Show", crmStage: "no_show", meetingStatus: "no_show" },
+  "c57aa775-1b66-4deb-879b-6def7b8f6803": { companyId: COMPANY_IDS.cuates, pipelineId: "qG9FytqduSLUwRedu8Zb", label: "Atendido (Warm)", crmStage: "contactado_con_tarea", meetingStatus: "atendida" },
+  "97f99876-94f0-47a6-9fc1-f7e876a4aa5b": { companyId: COMPANY_IDS.cuates, pipelineId: "qG9FytqduSLUwRedu8Zb", label: "Seguimiento Mensual", crmStage: "contactado_con_tarea", meetingStatus: "reagendo" },
+  "580fee77-ef55-4847-b538-dd7c9c577270": { companyId: COMPANY_IDS.cuates, pipelineId: "qG9FytqduSLUwRedu8Zb", label: "En Proceso De Aprobacion", crmStage: "en_proceso_aprobacion", meetingStatus: "atendida" },
+  "d211d6a8-e64e-4909-8de3-280831b6dc8e": { companyId: COMPANY_IDS.cuates, pipelineId: "qG9FytqduSLUwRedu8Zb", label: "Potencial", crmStage: "lead_potencial", meetingStatus: "atendida" },
+  "6fdad7fd-7969-4064-8e30-378ecd5a9736": { companyId: COMPANY_IDS.cuates, pipelineId: "qG9FytqduSLUwRedu8Zb", label: "Closed", crmStage: "closed", meetingStatus: "cerrado" },
+  "ae10cf16-b9c3-4af8-b4ef-43349e8f9850": { companyId: COMPANY_IDS.cuates, pipelineId: "qG9FytqduSLUwRedu8Zb", label: "Did Get Approved", crmStage: "lead_potencial", meetingStatus: "atendida" },
+  "70d336b7-7e91-4e2a-b697-914817458100": { companyId: COMPANY_IDS.cuates, pipelineId: "qG9FytqduSLUwRedu8Zb", label: "Not Interested", crmStage: "not_interested", meetingStatus: "descalificado" },
+};
 
 const pipelineStages = [
   "reunion_agendada_oficina",
@@ -121,6 +153,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/api/ghl/sync" && req.method === "POST") {
+      requireSyncSecret(req);
       const started = new Date().toISOString();
       if (!config.ghlApiKey || !config.ghlLocationId) {
         await recordGhlSyncRun({
@@ -145,6 +178,7 @@ const server = http.createServer(async (req, res) => {
 
         if (snapshots.length) {
           await supabaseUpsert("ghl_lead_snapshots", snapshots, "meeting_id");
+          await updateMeetingsFromGhlSnapshots(snapshots, meetings);
         }
 
         await recordGhlSyncRun({
@@ -182,7 +216,11 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       const id = requiredText(body.id, "Meeting ID");
       const status = oneOf(body.status, ["agendada", "atendida", "no_show", "reagendo", "descalificado", "cerrado"], "Meeting status");
-      await supabaseUpdate("meetings", { status }, { id });
+      await supabaseUpdate("meetings", {
+        status,
+        status_source: "closer_dashboard",
+        status_updated_at: new Date().toISOString(),
+      }, { id });
       return sendJson(res, { ok: true });
     }
 
@@ -240,6 +278,13 @@ async function readJson(req) {
   for await (const chunk of req) chunks.push(chunk);
   const text = Buffer.concat(chunks).toString("utf8");
   return text ? JSON.parse(text) : {};
+}
+
+function requireSyncSecret(req) {
+  if (!config.crmSyncSecret) return;
+  const provided = cleanText(req.headers["x-crm-sync-secret"]);
+  if (provided === config.crmSyncSecret) return;
+  throw Object.assign(new Error("Sync authorization is required."), { status: 401 });
 }
 
 function loadDotEnv() {
@@ -326,39 +371,109 @@ function extractGhlRows(payload) {
 }
 
 function opportunityToSnapshot(opportunity, meetings) {
-  const meeting = matchOpportunityToMeeting(opportunity, meetings);
+  const pipelineStageId = cleanText(opportunity.pipelineStageId || opportunity.pipeline_stage_id || opportunity.pipelineStageUId || opportunity.stageId || opportunity.stage_id);
+  const pipelineId = cleanText(opportunity.pipelineId || opportunity.pipeline_id);
+  const mapping = GHL_STAGE_MAPPINGS[pipelineStageId];
+  if (!mapping || (pipelineId && mapping.pipelineId !== pipelineId)) return null;
+
+  const meeting = matchOpportunityToMeeting(opportunity, meetings, mapping);
   if (!meeting) return null;
-  const stageName = cleanText(opportunity.pipelineStageName || opportunity.pipeline_stage_name || opportunity.stageName || opportunity.stage_name);
   const status = cleanText(opportunity.status || opportunity.opportunityStatus || opportunity.opportunity_status || "open");
+  const lastActivityAt = ghlChangedAt(opportunity);
 
   return sanitizeGhlSnapshot({
     meeting_id: meeting.id,
     company_id: meeting.company_id,
-    ghl_contact_id: opportunity.contactId || opportunity.contact_id || opportunity.contact?.id,
-    ghl_opportunity_id: opportunity.id || opportunity.opportunityId || opportunity.opportunity_id,
-    pipeline_stage: mapGhlStage(stageName || opportunity.pipelineStageId || opportunity.pipeline_stage_id, status),
-    pipeline_stage_name: stageName,
+    ghl_contact_id: ghlContactId(opportunity),
+    ghl_opportunity_id: ghlOpportunityId(opportunity),
+    ghl_pipeline_id: pipelineId || mapping.pipelineId,
+    ghl_pipeline_stage_id: pipelineStageId,
+    pipeline_stage: mapping.crmStage,
+    pipeline_stage_name: mapping.label,
+    meeting_status: mapping.meetingStatus,
     opportunity_status: mapGhlStatus(status),
     opportunity_value: opportunity.monetaryValue || opportunity.value || opportunity.opportunityValue,
     assigned_to_name: opportunity.assignedToName || opportunity.assigned_to_name || opportunity.assignedTo || opportunity.ownerName,
     follow_up_date: opportunity.followUpDate || opportunity.follow_up_date,
-    last_activity_at: opportunity.updatedAt || opportunity.updated_at || opportunity.lastStatusChangeAt || opportunity.lastStageChangeAt,
+    last_activity_at: lastActivityAt,
     last_note: latestGhlNote(opportunity),
     raw_payload: opportunity,
   });
 }
 
-function matchOpportunityToMeeting(opportunity, meetings) {
+function matchOpportunityToMeeting(opportunity, meetings, mapping) {
+  const opportunityId = ghlOpportunityId(opportunity);
+  const contactId = ghlContactId(opportunity);
+  const companyMeetings = mapping?.companyId
+    ? meetings.filter((meeting) => meeting.company_id === mapping.companyId)
+    : meetings;
+
+  if (opportunityId) {
+    const exactOpportunity = companyMeetings.find((meeting) => cleanText(meeting.ghl_opportunity_id) === opportunityId);
+    if (exactOpportunity) return exactOpportunity;
+  }
+
+  if (contactId) {
+    const exactContact = companyMeetings.find((meeting) => cleanText(meeting.ghl_contact_id) === contactId);
+    if (exactContact) return exactContact;
+  }
+
   const name = normalizedName(opportunity.name || opportunity.fullName || opportunity.contactName || opportunity.contact?.name);
   if (!name) return null;
 
-  const exact = meetings.find((meeting) => normalizedName(meeting.client_name) === name);
+  const exact = companyMeetings.find((meeting) => normalizedName(meeting.client_name) === name);
   if (exact) return exact;
 
-  return meetings.find((meeting) => {
+  return companyMeetings.find((meeting) => {
     const meetingName = normalizedName(meeting.client_name);
     return meetingName && (meetingName.includes(name) || name.includes(meetingName));
   }) || null;
+}
+
+async function updateMeetingsFromGhlSnapshots(snapshots, meetings) {
+  const meetingsById = new Map(meetings.map((meeting) => [meeting.id, meeting]));
+  await Promise.all(snapshots.map((snapshot) => {
+    const meeting = meetingsById.get(snapshot.meeting_id);
+    if (!meeting) return null;
+
+    const incomingAt = cleanDateTime(snapshot.last_activity_at) || snapshot.synced_at || new Date().toISOString();
+    const existingAt = cleanDateTime(meeting.status_updated_at);
+    const isNewerThanCloserStatus = !existingAt || new Date(incomingAt).getTime() >= new Date(existingAt).getTime();
+    const shouldUpdateStatus = cleanText(meeting.status_source) !== "closer_dashboard" || isNewerThanCloserStatus;
+    const values = {
+      ghl_contact_id: cleanText(snapshot.ghl_contact_id),
+      ghl_opportunity_id: cleanText(snapshot.ghl_opportunity_id),
+    };
+
+    if (shouldUpdateStatus && snapshot.meeting_status) {
+      values.status = snapshot.meeting_status;
+      values.status_source = "ghl";
+      values.status_updated_at = incomingAt;
+    }
+
+    return supabaseUpdate("meetings", values, { id: snapshot.meeting_id });
+  }));
+}
+
+function ghlOpportunityId(opportunity) {
+  return cleanText(opportunity.id || opportunity.opportunityId || opportunity.opportunity_id);
+}
+
+function ghlContactId(opportunity) {
+  return cleanText(opportunity.contactId || opportunity.contact_id || opportunity.contact?.id);
+}
+
+function ghlChangedAt(opportunity) {
+  return cleanDateTime(
+    opportunity.lastStageChangeAt ||
+    opportunity.last_stage_change_at ||
+    opportunity.lastStatusChangeAt ||
+    opportunity.last_status_change_at ||
+    opportunity.updatedAt ||
+    opportunity.updated_at ||
+    opportunity.dateUpdated ||
+    opportunity.date_updated
+  );
 }
 
 function mapGhlStage(value, status = "") {
@@ -404,8 +519,11 @@ function compactGhlSnapshot(row) {
     company_id: row.company_id,
     ghl_contact_id: row.ghl_contact_id,
     ghl_opportunity_id: row.ghl_opportunity_id,
+    ghl_pipeline_id: row.ghl_pipeline_id,
+    ghl_pipeline_stage_id: row.ghl_pipeline_stage_id,
     pipeline_stage: row.pipeline_stage,
     pipeline_stage_name: row.pipeline_stage_name,
+    meeting_status: row.meeting_status,
     opportunity_status: row.opportunity_status,
     opportunity_value: row.opportunity_value,
     assigned_to_name: row.assigned_to_name,
@@ -539,8 +657,11 @@ function sanitizeGhlSnapshot(body) {
     company_id: companyId,
     ghl_contact_id: cleanText(body.ghl_contact_id || body.contact_id),
     ghl_opportunity_id: cleanText(body.ghl_opportunity_id || body.opportunity_id),
+    ghl_pipeline_id: cleanText(body.ghl_pipeline_id || body.pipeline_id),
+    ghl_pipeline_stage_id: cleanText(body.ghl_pipeline_stage_id || body.pipeline_stage_id),
     pipeline_stage: stage,
     pipeline_stage_name: cleanText(body.pipeline_stage_name || body.stage_name || STAGE_LABEL_FALLBACK[stage]),
+    meeting_status: oneOf(body.meeting_status || "", ["", "agendada", "atendida", "no_show", "reagendo", "descalificado", "cerrado"], "Mapped meeting status"),
     opportunity_status: oneOf(status, ["open", "won", "lost", "abandoned"], "GHL opportunity status"),
     opportunity_value: cleanMoney(body.opportunity_value || body.deal_value),
     assigned_to_name: cleanText(body.assigned_to_name || body.assigned_to),

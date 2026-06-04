@@ -65,14 +65,40 @@ create table if not exists public.meeting_notes (
   )
 );
 
+alter table public.meetings
+  add column if not exists status_source text not null default 'setter',
+  add column if not exists status_updated_at timestamptz not null default now(),
+  add column if not exists ghl_contact_id text not null default '',
+  add column if not exists ghl_opportunity_id text not null default '',
+  add column if not exists ghl_appointment_id text not null default '';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'meetings_status_source_check'
+      and conrelid = 'public.meetings'::regclass
+  ) then
+    alter table public.meetings
+      add constraint meetings_status_source_check check (
+        status_source in ('setter', 'closer_dashboard', 'ghl', 'system', 'manual_import')
+      );
+  end if;
+end;
+$$;
+
 create table if not exists public.ghl_lead_snapshots (
   id uuid primary key default gen_random_uuid(),
   meeting_id uuid not null references public.meetings(id) on delete cascade,
   company_id uuid not null references public.companies(id) on delete cascade,
   ghl_contact_id text not null default '',
   ghl_opportunity_id text not null default '',
+  ghl_pipeline_id text not null default '',
+  ghl_pipeline_stage_id text not null default '',
   pipeline_stage text not null default 'contacted',
   pipeline_stage_name text not null default '',
+  meeting_status text not null default '',
   opportunity_status text not null default 'open',
   opportunity_value numeric(12, 2),
   assigned_to_name text not null default '',
@@ -103,10 +129,34 @@ create table if not exists public.ghl_lead_snapshots (
       'lost'
     )
   ),
+  constraint ghl_lead_snapshots_meeting_status_check check (
+    meeting_status in ('', 'agendada', 'atendida', 'no_show', 'reagendo', 'descalificado', 'cerrado')
+  ),
   constraint ghl_lead_snapshots_status_check check (
     opportunity_status in ('open', 'won', 'lost', 'abandoned')
   )
 );
+
+alter table public.ghl_lead_snapshots
+  add column if not exists ghl_pipeline_id text not null default '',
+  add column if not exists ghl_pipeline_stage_id text not null default '',
+  add column if not exists meeting_status text not null default '';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'ghl_lead_snapshots_meeting_status_check'
+      and conrelid = 'public.ghl_lead_snapshots'::regclass
+  ) then
+    alter table public.ghl_lead_snapshots
+      add constraint ghl_lead_snapshots_meeting_status_check check (
+        meeting_status in ('', 'agendada', 'atendida', 'no_show', 'reagendo', 'descalificado', 'cerrado')
+      );
+  end if;
+end;
+$$;
 
 create table if not exists public.ghl_sync_runs (
   id uuid primary key default gen_random_uuid(),
@@ -129,9 +179,14 @@ create index if not exists closer_pipeline_closer_idx on public.closer_pipeline 
 create index if not exists closer_pipeline_status_idx on public.closer_pipeline (closer_status);
 create index if not exists meeting_notes_meeting_idx on public.meeting_notes (meeting_id, created_at desc);
 create index if not exists meeting_notes_company_idx on public.meeting_notes (company_id);
+create index if not exists meetings_status_updated_idx on public.meetings (status_updated_at desc);
+create index if not exists meetings_ghl_contact_idx on public.meetings (ghl_contact_id);
+create index if not exists meetings_ghl_opportunity_idx on public.meetings (ghl_opportunity_id);
 create index if not exists ghl_lead_snapshots_meeting_idx on public.ghl_lead_snapshots (meeting_id);
 create index if not exists ghl_lead_snapshots_company_idx on public.ghl_lead_snapshots (company_id);
 create index if not exists ghl_lead_snapshots_stage_idx on public.ghl_lead_snapshots (pipeline_stage);
+create index if not exists ghl_lead_snapshots_pipeline_idx on public.ghl_lead_snapshots (ghl_pipeline_id);
+create index if not exists ghl_lead_snapshots_pipeline_stage_idx on public.ghl_lead_snapshots (ghl_pipeline_stage_id);
 create index if not exists ghl_lead_snapshots_synced_idx on public.ghl_lead_snapshots (synced_at desc);
 create index if not exists ghl_sync_runs_started_idx on public.ghl_sync_runs (started_at desc);
 
