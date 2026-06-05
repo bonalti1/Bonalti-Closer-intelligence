@@ -111,4 +111,4 @@ curl -X POST http://localhost:4284/api/ghl/import \
 
 - Dashboard: owner command center for Claudia Garza.
 - Pipeline: GHL-style stage board.
-- Reports: PDF-style monthly meeting summary.
+- Reports: executive sales report for sales week, current month, last month, year, last year, and custom date ranges. Includes close rate, no-show rate, show rate, due follow-ups, missing notes, no-activity leads, last touch, and client detail.

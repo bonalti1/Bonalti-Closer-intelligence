@@ -256,7 +256,11 @@ function filteredMeetings() {
 function matchesPeriod(meeting, period) {
   const meetingDate = dateValue(meeting.meeting_date);
   if (!meetingDate) return false;
-  if (period === "all") return true;
+  if (period === "all") {
+    const from = dateValue(elements.fromDate.value || isoDate(firstDayOfMonth(workingDate)));
+    const to = dateValue(elements.toDate.value || isoDate(workingDate));
+    return meetingDate >= from && meetingDate <= to;
+  }
   if (period === "today") return isSameDay(meetingDate, workingDate);
   if (period === "recent30") return meetingDate >= addDays(workingDate, -30) && meetingDate <= addDays(workingDate, 1);
   if (period === "salesWeek") {
@@ -446,45 +450,95 @@ function renderPipeline(meetings) {
 
 function renderReports(meetings) {
   const selectedCompanyId = elements.companyFilter.value;
-  const companyId = selectedCompanyId === COMPANY_IDS.lending ? COMPANY_IDS.south : selectedCompanyId;
+  const isLending = selectedCompanyId === COMPANY_IDS.lending;
+  const companyId = isLending ? COMPANY_IDS.south : selectedCompanyId;
   const company = COMPANY_META[selectedCompanyId] || COMPANY_META[companyId];
   const reportRows = elements.companyFilter.value === COMPANY_IDS.lending
     ? meetings.filter((meeting) => meeting.meeting_type === "lender")
     : meetings.filter((meeting) => meeting.company_id === companyId && meeting.meeting_type === "construction");
-  const highPotential = reportRows.filter((meeting) => displayStage(meeting) === "lead_potencial").length;
-  const inProcess = reportRows.filter((meeting) => displayStage(meeting) === "en_proceso_aprobacion").length;
-  const notQualified = reportRows.filter((meeting) => ["did_not_approve_mortgage_loan", "not_interested"].includes(displayStage(meeting))).length;
-  const waiting = Math.max(reportRows.length - highPotential - inProcess - notQualified, 0);
+  const totals = stageTotals(reportRows, isLending);
+  const attended = totals.attended || 0;
+  const closed = totals.closed || 0;
+  const noShows = totals.noShows || 0;
+  const followUps = reportRows.filter(isFollowUpDue);
+  const missingNotes = reportRows.filter(hasMissingCloserNote);
+  const noRecentTouch = reportRows.filter((meeting) => !lastActivityFor(meeting.id) && !notesFor(meeting.id).length && !meeting.notes);
+  const closeRate = percent(closed, attended || reportRows.length);
+  const showRate = percent(attended, reportRows.length);
+  const noShowRate = percent(noShows, reportRows.length);
+  const reportTitle = isLending ? "Lending Sales Report" : "Construction Sales Report";
 
   elements.contentArea.innerHTML = `
     <section class="report-page">
       <div class="report-title">
         <div>
-          <h2>Reporte de Citas de Construccion</h2>
-          <p>${escapeHtml(monthYear(workingDate))} · ${escapeHtml(company.name)}</p>
+          <h2>${escapeHtml(reportTitle)}</h2>
+          <p>${escapeHtml(formatDateRangeLabel())} · ${escapeHtml(company.name)}</p>
         </div>
-        <strong>${reportRows.length} citas atendidas</strong>
+        <strong>${reportRows.length} meetings</strong>
       </div>
 
       <div class="report-stats">
-        <div><strong>${reportRows.length}</strong><span>Total citas</span></div>
-        <div><strong>${highPotential}</strong><span>Alto potencial</span></div>
-        <div><strong>${inProcess}</strong><span>En proceso</span></div>
-        <div><strong>${notQualified}</strong><span>No califican</span></div>
-        <div><strong>${waiting}</strong><span>En espera / otros</span></div>
+        <div><strong>${reportRows.length}</strong><span>Total meetings</span></div>
+        <div><strong>${attended}</strong><span>Attended</span></div>
+        <div><strong>${closed}</strong><span>Closed</span></div>
+        <div><strong>${closeRate}</strong><span>Close rate</span></div>
+        <div><strong>${noShowRate}</strong><span>No-show rate</span></div>
+        <div><strong>${isLending ? totals.qualified : totals.highlyInterested}</strong><span>${isLending ? "Approved" : "Highly interested"}</span></div>
+        <div><strong>${totals.needFollowUp}</strong><span>Need follow up</span></div>
+        <div><strong>${missingNotes.length}</strong><span>Missing notes</span></div>
+        <div><strong>${followUps.length}</strong><span>Due follow-ups</span></div>
+        <div><strong>${showRate}</strong><span>Show rate</span></div>
+      </div>
+
+      <div class="report-insights">
+        ${renderReportInsight("Follow-up list", followUps, "No follow-ups due.")}
+        ${renderReportInsight("Missing closer notes", missingNotes, "Every reviewed lead has notes.")}
+        ${renderReportInsight("No activity captured", noRecentTouch, "Every lead has at least one note or activity.")}
+      </div>
+
+      <div class="report-section-title">
+        <div>
+          <p>Client Detail</p>
+          <h3>Meeting Outcomes</h3>
+        </div>
+        <span>${reportRows.length} rows</span>
       </div>
 
       <div class="report-table">
         <div class="report-head">
-          <span>#</span>
-          <span>Cliente</span>
-          <span>Fecha</span>
-          <span>Status</span>
-          <span>Razon / Siguiente paso</span>
+          <span>Client</span>
+          <span>Date</span>
+          <span>Outcome</span>
+          <span>Last touch</span>
+          <span>Notes / next step</span>
         </div>
-        ${reportRows.slice(0, 40).map((meeting, index) => renderReportRow(meeting, index)).join("") || '<div class="empty-state">No construction meetings for this report.</div>'}
+        ${reportRows.slice(0, 80).map((meeting) => renderReportRow(meeting, isLending)).join("") || '<div class="empty-state">No meetings for this report period.</div>'}
       </div>
     </section>
+  `;
+}
+
+function renderReportInsight(title, rows, emptyText) {
+  return `
+    <div class="report-insight">
+      <div class="report-insight-head">
+        <strong>${escapeHtml(title)}</strong>
+        <span>${rows.length}</span>
+      </div>
+      <div class="report-insight-list">
+        ${rows.slice(0, 5).map((meeting) => {
+          const activity = lastActivityFor(meeting.id);
+          return `
+            <button type="button" data-meeting-id="${meeting.id}">
+              <strong>${escapeHtml(meeting.client_name)}</strong>
+              <span>${escapeHtml(formatShortDate(meeting.meeting_date))} · ${escapeHtml(outcomeLabel(meeting, elements.companyFilter.value === COMPANY_IDS.lending))}</span>
+              <small>${escapeHtml(activity ? `Last touch ${formatShortDate(activity.activity_at)}` : "No imported activity")}</small>
+            </button>
+          `;
+        }).join("") || `<div class="empty-state">${escapeHtml(emptyText)}</div>`}
+      </div>
+    </div>
   `;
 }
 
@@ -559,15 +613,16 @@ function renderLeadCard(meeting) {
   `;
 }
 
-function renderReportRow(meeting, index) {
+function renderReportRow(meeting, isLending) {
   const pipeline = pipelineFor(meeting.id);
-  const note = pipeline.closer_notes || meeting.notes || pipeline.lost_reason || "No hay informacion disponible de la cita.";
+  const activity = lastActivityFor(meeting.id);
+  const note = pipeline.closer_notes || activity?.activity_text || meeting.notes || pipeline.lost_reason || "No note captured yet.";
   return `
     <button class="report-row" type="button" data-meeting-id="${meeting.id}">
-      <span>${index + 1}</span>
       <strong>${escapeHtml(meeting.client_name)}</strong>
       <span>${escapeHtml(formatShortDate(meeting.meeting_date))}</span>
-      <span>${escapeHtml(reportStatus(meeting))}</span>
+      <span>${escapeHtml(outcomeLabel(meeting, isLending))}</span>
+      <span>${escapeHtml(activity ? formatDateTime(activity.activity_at) : "No activity")}</span>
       <span>${escapeHtml(note)}</span>
     </button>
   `;
@@ -946,7 +1001,11 @@ function formatTime(date) {
 }
 
 function formatDateRangeLabel() {
-  if (elements.periodFilter.value === "all") return "All History";
+  if (elements.periodFilter.value === "all") {
+    const from = elements.fromDate.value || isoDate(firstDayOfMonth(workingDate));
+    const to = elements.toDate.value || isoDate(workingDate);
+    return `${formatShortDate(from)} - ${formatShortDate(to)}`;
+  }
   if (elements.periodFilter.value === "today") return formatDate(isoDate(workingDate));
   if (elements.periodFilter.value === "recent30") return `Last 30 Days`;
   if (elements.periodFilter.value === "lastMonth") return "Last Month";
@@ -1041,6 +1100,10 @@ function isNeedFollowUp(meeting) {
 
 function monthYear(date) {
   return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(date);
+}
+
+function percent(value, base) {
+  return base ? `${Math.round((value / base) * 100)}%` : "0%";
 }
 
 function titleCase(value) {
