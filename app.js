@@ -477,7 +477,11 @@ function renderReports(meetings) {
           <h2>${escapeHtml(reportTitle)}</h2>
           <p>${escapeHtml(formatDateRangeLabel())} · ${escapeHtml(company.name)}</p>
         </div>
-        <strong>${reportRows.length} meetings</strong>
+        <div class="report-actions">
+          <strong>${reportRows.length} meetings</strong>
+          <button type="button" data-report-action="copy">Copy Report</button>
+          <button type="button" data-report-action="download">Download</button>
+        </div>
       </div>
 
       <div class="report-stats">
@@ -631,6 +635,12 @@ function renderReportRow(meeting, isLending) {
 }
 
 function handleDocumentClick(event) {
+  const reportAction = event.target.closest("[data-report-action]");
+  if (reportAction) {
+    handleReportAction(reportAction.dataset.reportAction);
+    return;
+  }
+
   const companyButton = event.target.closest("[data-company-select]");
   if (companyButton) {
     elements.companyFilter.value = companyButton.dataset.companySelect;
@@ -658,6 +668,93 @@ function handleDocumentClick(event) {
 
   const row = event.target.closest("[data-meeting-id]");
   if (row) openDrawer(row.dataset.meetingId);
+}
+
+async function handleReportAction(action) {
+  const report = currentReportText();
+  if (!report) return;
+  if (action === "download") {
+    downloadTextFile(report, `bonalti-sales-report-${isoDate(new Date())}.txt`);
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(report);
+    showReportToast("Report copied");
+  } catch {
+    downloadTextFile(report, `bonalti-sales-report-${isoDate(new Date())}.txt`);
+    showReportToast("Downloaded instead");
+  }
+}
+
+function currentReportText() {
+  const selectedCompanyId = elements.companyFilter.value;
+  const isLending = selectedCompanyId === COMPANY_IDS.lending;
+  const company = COMPANY_META[selectedCompanyId] || COMPANY_META[COMPANY_IDS.south];
+  const rows = filteredMeetings();
+  const reportRows = isLending
+    ? rows.filter((meeting) => meeting.meeting_type === "lender")
+    : rows.filter((meeting) => meeting.company_id === selectedCompanyId && meeting.meeting_type === "construction");
+  const totals = stageTotals(reportRows, isLending);
+  const attended = totals.attended || 0;
+  const closed = totals.closed || 0;
+  const noShows = totals.noShows || 0;
+  const followUps = reportRows.filter(isFollowUpDue);
+  const missingNotes = reportRows.filter(hasMissingCloserNote);
+  const noRecentTouch = reportRows.filter((meeting) => !lastActivityFor(meeting.id) && !notesFor(meeting.id).length && !meeting.notes);
+
+  const lines = [
+    `${isLending ? "Lending Sales Report" : "Construction Sales Report"}`,
+    `${company.name} | ${formatDateRangeLabel()}`,
+    "",
+    `Total meetings: ${reportRows.length}`,
+    `Attended: ${attended}`,
+    `Closed: ${closed}`,
+    `Close rate: ${percent(closed, attended || reportRows.length)}`,
+    `No-show rate: ${percent(noShows, reportRows.length)}`,
+    `Show rate: ${percent(attended, reportRows.length)}`,
+    `${isLending ? "Approved" : "Highly interested"}: ${isLending ? totals.qualified : totals.highlyInterested}`,
+    `Need follow up: ${totals.needFollowUp}`,
+    `Due follow-ups: ${followUps.length}`,
+    `Missing notes: ${missingNotes.length}`,
+    `No activity captured: ${noRecentTouch.length}`,
+    "",
+    "Client Detail:",
+    ...reportRows.map((meeting, index) => {
+      const activity = lastActivityFor(meeting.id);
+      const pipeline = pipelineFor(meeting.id);
+      const note = pipeline.closer_notes || activity?.activity_text || meeting.notes || pipeline.lost_reason || "No note captured yet.";
+      return [
+        `${index + 1}. ${meeting.client_name}`,
+        `   Date: ${formatShortDate(meeting.meeting_date)}`,
+        `   Outcome: ${outcomeLabel(meeting, isLending)}`,
+        `   Last touch: ${activity ? formatDateTime(activity.activity_at) : "No activity"}`,
+        `   Notes: ${note}`,
+      ].join("\n");
+    }),
+  ];
+
+  return lines.join("\n");
+}
+
+function downloadTextFile(text, filename) {
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function showReportToast(message) {
+  const toast = document.createElement("div");
+  toast.className = "report-toast";
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 1800);
 }
 
 function openDrawer(meetingId) {
