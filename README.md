@@ -35,6 +35,7 @@ GHL_API_VERSION=2021-07-28
 GHL_SYNC_LIMIT=100
 CRM_START_DATE=2026-06-01
 CRM_SYNC_SECRET=
+CRM_WEBHOOK_SECRET=
 ```
 
 Current GHL endpoints:
@@ -42,6 +43,8 @@ Current GHL endpoints:
 - `GET /api/ghl/status` checks whether the server has GHL config.
 - `POST /api/ghl/sync` pulls opportunities from GHL, stores matched rows in `ghl_lead_snapshots`, and updates shared `meetings.status`.
 - `POST /api/ghl/import` accepts test snapshots and saves them to `ghl_lead_snapshots`.
+- `POST /api/activities/import` accepts activity imports and saves them to `ghl_activities`.
+- `POST /api/plaud/webhook` accepts PLAUD/Zapier transcript payloads and saves matched meeting notes.
 
 Sync matching checks existing GHL contact/opportunity IDs first, then matches by client name inside the correct company. If GHL webhooks or custom fields later provide the Supabase meeting ID, the match can become exact.
 
@@ -49,6 +52,27 @@ If `CRM_SYNC_SECRET` is set on the web service, callers must include it as:
 
 ```bash
 X-CRM-Sync-Secret: your-secret-value
+```
+
+If `CRM_WEBHOOK_SECRET` is set, Zapier/PLAUD webhook calls must include:
+
+```bash
+X-CRM-Webhook-Secret: your-secret-value
+```
+
+Recommended PLAUD/Zapier payload fields:
+
+```json
+{
+  "recording_id": "unique-recording-id",
+  "client_name": "Client Name",
+  "company": "South Texas Builders",
+  "meeting_date": "2026-06-04",
+  "title": "Meeting title",
+  "summary": "AI summary from PLAUD",
+  "transcript": "Full transcript",
+  "closer_name": "Claudia Garza"
+}
 ```
 
 ## Scheduled sync

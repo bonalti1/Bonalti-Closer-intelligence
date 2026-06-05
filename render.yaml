@@ -26,6 +26,8 @@ services:
         value: 2026-06-01
       - key: CRM_SYNC_SECRET
         sync: false
+      - key: CRM_WEBHOOK_SECRET
+        sync: false
 
   - type: cron
     name: bonalti-closer-crm-ghl-sync

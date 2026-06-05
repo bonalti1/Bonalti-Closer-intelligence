@@ -1213,11 +1213,33 @@ body.theme-cuates .department-title h1 span {
   gap: 8px;
 }
 
+.activity-feed-title {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.8px;
+  margin-top: 6px;
+  text-transform: uppercase;
+}
+
 .note-item {
   border-top: 1px solid var(--line);
   padding-top: 8px;
   color: #39445a;
   font-size: 13px;
+}
+
+.activity-note {
+  border-left: 3px solid var(--brand-accent);
+  border-top: 0;
+  background: #fbfcfb;
+  border-radius: 8px;
+  padding: 9px 10px;
+}
+
+.activity-note.plaud,
+.activity-note.zapier {
+  border-left-color: var(--green);
 }
 
 .note-item strong {

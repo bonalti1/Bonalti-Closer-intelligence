@@ -22,6 +22,7 @@ const config = {
   ghlSyncLimit: Number(process.env.GHL_SYNC_LIMIT || 100),
   crmStartDate: process.env.CRM_START_DATE || "2026-06-01",
   crmSyncSecret: process.env.CRM_SYNC_SECRET || "",
+  crmWebhookSecret: process.env.CRM_WEBHOOK_SECRET || process.env.CRM_SYNC_SECRET || "",
 };
 
 const companies = [
@@ -78,6 +79,10 @@ const pipelineStages = [
   "lost",
 ];
 
+const noteTypes = ["setter", "closer", "follow_up", "status", "ghl_activity", "plaud_meeting"];
+const activityTypes = ["note", "call", "sms", "whatsapp", "email", "meeting_transcript", "summary", "other"];
+const activitySources = ["ghl", "plaud", "zapier", "manual_import"];
+
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -103,18 +108,19 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === "/api/state") {
       await ensureCompanies();
-      const [companyRows, meetingRows, pipelineResult, notesResult, ghlResult, ghlRunsResult] = await Promise.all([
+      const [companyRows, meetingRows, pipelineResult, notesResult, ghlResult, ghlRunsResult, activityResult] = await Promise.all([
         supabaseSelectAll("companies", "id,slug,name,brand_color,active"),
         supabaseSelectAll("meetings", "*", { order: "meeting_date.desc,created_at.desc" }),
         safeSelect("closer_pipeline", "*", { order: "updated_at.desc" }),
         safeSelect("meeting_notes", "*", { order: "created_at.desc" }),
         safeSelect("ghl_lead_snapshots", "*", { order: "updated_at.desc" }),
         safeSelect("ghl_sync_runs", "*", { order: "started_at.desc" }),
+        safeSelect("ghl_activities", "*", { order: "activity_at.desc" }),
       ]);
       const meetings = meetingRows.filter(isCrmMeeting);
       const meetingIds = new Set(meetings.map((meeting) => meeting.id));
 
-      const setupRequired = !pipelineResult.ok || !notesResult.ok || !ghlResult.ok || !ghlRunsResult.ok;
+      const setupRequired = !pipelineResult.ok || !notesResult.ok || !ghlResult.ok || !ghlRunsResult.ok || !activityResult.ok;
       return sendJson(res, {
         setupRequired,
         setupError: setupRequired ? "Run supabase/closer_crm_schema.sql in Supabase to enable pipeline, notes, and GHL sync tables." : "",
@@ -122,6 +128,7 @@ const server = http.createServer(async (req, res) => {
         meetings,
         pipeline: pipelineResult.rows.filter((row) => meetingIds.has(row.meeting_id)),
         notes: notesResult.rows.filter((row) => meetingIds.has(row.meeting_id)),
+        activities: activityResult.rows.filter((row) => meetingIds.has(row.meeting_id)).map(compactActivity),
         ghl: {
           configured: Boolean(config.ghlApiKey && config.ghlLocationId),
           snapshots: ghlResult.rows.filter((row) => meetingIds.has(row.meeting_id)).map(compactGhlSnapshot),
@@ -179,6 +186,7 @@ const server = http.createServer(async (req, res) => {
         if (snapshots.length) {
           await supabaseUpsert("ghl_lead_snapshots", snapshots, "meeting_id");
           await updateMeetingsFromGhlSnapshots(snapshots, meetings);
+          await syncGhlActivitiesFromSnapshots(snapshots);
         }
 
         await recordGhlSyncRun({
@@ -230,11 +238,27 @@ const server = http.createServer(async (req, res) => {
         meeting_id: requiredText(body.meeting_id, "Meeting ID"),
         company_id: requiredText(body.company_id, "Company ID"),
         note_text: requiredText(body.note_text, "Note"),
-        note_type: oneOf(body.note_type || "closer", ["setter", "closer", "follow_up", "status"], "Note type"),
+        note_type: oneOf(body.note_type || "closer", noteTypes, "Note type"),
         created_by_name: cleanText(body.created_by_name),
       };
       await supabaseInsert("meeting_notes", [note]);
       return sendJson(res, { ok: true });
+    }
+
+    if (url.pathname === "/api/activities/import" && req.method === "POST") {
+      requireWebhookSecret(req);
+      const body = await readJson(req);
+      const rows = Array.isArray(body.activities) ? body.activities : [body];
+      const activities = rows.map((row) => sanitizeActivity(row));
+      await supabaseUpsert("ghl_activities", activities, "activity_source,external_id");
+      return sendJson(res, { ok: true, imported: activities.length });
+    }
+
+    if (url.pathname === "/api/plaud/webhook" && req.method === "POST") {
+      requireWebhookSecret(req);
+      const body = await readJson(req);
+      const result = await importPlaudActivity(body);
+      return sendJson(res, result);
     }
 
     const filePath = safePublicPath(url.pathname);
@@ -285,6 +309,13 @@ function requireSyncSecret(req) {
   const provided = cleanText(req.headers["x-crm-sync-secret"]);
   if (provided === config.crmSyncSecret) return;
   throw Object.assign(new Error("Sync authorization is required."), { status: 401 });
+}
+
+function requireWebhookSecret(req) {
+  if (!config.crmWebhookSecret) return;
+  const provided = cleanText(req.headers["x-crm-webhook-secret"] || req.headers["x-crm-sync-secret"]);
+  if (provided === config.crmWebhookSecret) return;
+  throw Object.assign(new Error("Webhook authorization is required."), { status: 401 });
 }
 
 function loadDotEnv() {
@@ -512,6 +543,66 @@ function latestGhlNote(opportunity) {
   return htmlToText(latest.bodyText || latest.body || latest.note || latest.text);
 }
 
+async function syncGhlActivitiesFromSnapshots(snapshots) {
+  const activities = snapshots
+    .flatMap((snapshot) => extractGhlActivities(snapshot))
+    .filter((activity) => activity.activity_text);
+
+  if (!activities.length) return;
+  await supabaseUpsert("ghl_activities", activities, "activity_source,external_id");
+
+  const noteRows = activities.map((activity) => ({
+    meeting_id: activity.meeting_id,
+    company_id: activity.company_id,
+    note_text: activity.activity_text,
+    note_type: "ghl_activity",
+    created_by_name: activity.closer_name || "GHL",
+    created_at: activity.activity_at,
+  }));
+  await insertMissingMeetingNotes(noteRows);
+}
+
+function extractGhlActivities(snapshot) {
+  const raw = snapshot.raw_payload || {};
+  const notes = Array.isArray(raw.notes?.notes)
+    ? raw.notes.notes
+    : Array.isArray(raw.notes)
+      ? raw.notes
+      : [];
+
+  const noteActivities = notes.map((note, index) => sanitizeActivity({
+    meeting_id: snapshot.meeting_id,
+    company_id: snapshot.company_id,
+    ghl_contact_id: snapshot.ghl_contact_id,
+    ghl_opportunity_id: snapshot.ghl_opportunity_id,
+    external_id: cleanText(note.id || note.noteId || note._id) || `${snapshot.ghl_opportunity_id || snapshot.meeting_id}:note:${index}`,
+    activity_source: "ghl",
+    activity_type: "note",
+    activity_text: htmlToText(note.bodyText || note.body || note.note || note.text),
+    activity_at: note.dateAdded || note.createdAt || note.updatedAt || snapshot.last_activity_at || snapshot.synced_at,
+    closer_name: snapshot.assigned_to_name,
+    raw_payload: note,
+  }));
+
+  if (!noteActivities.length && snapshot.last_note) {
+    return [sanitizeActivity({
+      meeting_id: snapshot.meeting_id,
+      company_id: snapshot.company_id,
+      ghl_contact_id: snapshot.ghl_contact_id,
+      ghl_opportunity_id: snapshot.ghl_opportunity_id,
+      external_id: `${snapshot.ghl_opportunity_id || snapshot.meeting_id}:latest-note`,
+      activity_source: "ghl",
+      activity_type: "note",
+      activity_text: snapshot.last_note,
+      activity_at: snapshot.last_activity_at || snapshot.synced_at,
+      closer_name: snapshot.assigned_to_name,
+      raw_payload: raw,
+    })];
+  }
+
+  return noteActivities;
+}
+
 function compactGhlSnapshot(row) {
   return {
     id: row.id,
@@ -532,6 +623,23 @@ function compactGhlSnapshot(row) {
     last_note: row.last_note,
     synced_at: row.synced_at,
     updated_at: row.updated_at,
+  };
+}
+
+function compactActivity(row) {
+  return {
+    id: row.id,
+    meeting_id: row.meeting_id,
+    company_id: row.company_id,
+    ghl_contact_id: row.ghl_contact_id,
+    ghl_opportunity_id: row.ghl_opportunity_id,
+    external_id: row.external_id,
+    activity_source: row.activity_source,
+    activity_type: row.activity_type,
+    activity_text: row.activity_text,
+    activity_at: row.activity_at,
+    closer_name: row.closer_name,
+    created_at: row.created_at,
   };
 }
 
@@ -673,6 +781,140 @@ function sanitizeGhlSnapshot(body) {
   };
 }
 
+function sanitizeActivity(body) {
+  const source = oneOf(body.activity_source || body.source || "manual_import", activitySources, "Activity source");
+  const type = oneOf(body.activity_type || body.type || "note", activityTypes, "Activity type");
+  const text = requiredText(body.activity_text || body.text || body.note_text || body.summary || body.transcript, "Activity text");
+  const meetingId = cleanText(body.meeting_id);
+  const externalId = cleanText(body.external_id || body.id || body.recording_id || body.note_id) ||
+    `${source}:${meetingId || cleanText(body.ghl_opportunity_id || body.ghl_contact_id) || "unknown"}:${hashText(`${type}:${text}:${body.activity_at || body.created_at || ""}`)}`;
+
+  return {
+    meeting_id: meetingId || null,
+    company_id: cleanText(body.company_id) || null,
+    ghl_contact_id: cleanText(body.ghl_contact_id || body.contact_id),
+    ghl_opportunity_id: cleanText(body.ghl_opportunity_id || body.opportunity_id),
+    external_id: externalId,
+    activity_source: source,
+    activity_type: type,
+    activity_text: text,
+    activity_at: cleanDateTime(body.activity_at || body.created_at || body.dateAdded || body.date_added) || new Date().toISOString(),
+    closer_name: cleanText(body.closer_name || body.created_by_name || body.owner_name),
+    raw_payload: body.raw_payload && typeof body.raw_payload === "object" ? body.raw_payload : body,
+  };
+}
+
+async function importPlaudActivity(body) {
+  const meetings = (await supabaseSelectAll("meetings", "*", { order: "meeting_date.desc,created_at.desc" })).filter(isCrmMeeting);
+  const meeting = matchPlaudPayloadToMeeting(body, meetings);
+  if (!meeting) {
+    return {
+      ok: false,
+      matched: false,
+      message: "No matching meeting found. Send meeting_id, or include client_name, meeting_date, and company.",
+    };
+  }
+
+  const transcript = cleanText(body.transcript || body.transcript_text || body.full_transcript);
+  const summary = cleanText(body.summary || body.ai_summary || body.meeting_summary);
+  const title = cleanText(body.title || body.recording_title || body.name) || "PLAUD meeting note";
+  const text = [
+    title,
+    summary ? `Summary:\n${summary}` : "",
+    transcript ? `Transcript:\n${transcript}` : "",
+  ].filter(Boolean).join("\n\n");
+
+  const activity = sanitizeActivity({
+    meeting_id: meeting.id,
+    company_id: meeting.company_id,
+    ghl_contact_id: meeting.ghl_contact_id,
+    ghl_opportunity_id: meeting.ghl_opportunity_id,
+    external_id: body.recording_id || body.id || body.note_id || `plaud:${meeting.id}:${hashText(text)}`,
+    activity_source: cleanText(body.activity_source || body.source) === "zapier" ? "zapier" : "plaud",
+    activity_type: "meeting_transcript",
+    activity_text: text,
+    activity_at: body.activity_at || body.recorded_at || body.created_at || meeting.meeting_date,
+    closer_name: body.closer_name || body.created_by_name || "PLAUD",
+    raw_payload: body,
+  });
+
+  await supabaseUpsert("ghl_activities", [activity], "activity_source,external_id");
+  await insertMissingMeetingNotes([{
+    meeting_id: meeting.id,
+    company_id: meeting.company_id,
+    note_text: text,
+    note_type: "plaud_meeting",
+    created_by_name: activity.closer_name || "PLAUD",
+    created_at: activity.activity_at,
+  }]);
+
+  return { ok: true, matched: true, meetingId: meeting.id, clientName: meeting.client_name };
+}
+
+function matchPlaudPayloadToMeeting(body, meetings) {
+  const explicitId = cleanText(body.meeting_id);
+  if (explicitId) return meetings.find((meeting) => meeting.id === explicitId) || null;
+
+  const contactId = cleanText(body.ghl_contact_id || body.contact_id);
+  if (contactId) {
+    const byContact = meetings.find((meeting) => cleanText(meeting.ghl_contact_id) === contactId);
+    if (byContact) return byContact;
+  }
+
+  const opportunityId = cleanText(body.ghl_opportunity_id || body.opportunity_id);
+  if (opportunityId) {
+    const byOpportunity = meetings.find((meeting) => cleanText(meeting.ghl_opportunity_id) === opportunityId);
+    if (byOpportunity) return byOpportunity;
+  }
+
+  const name = normalizedName(body.client_name || body.contact_name || body.customer_name || body.title || body.recording_title);
+  if (!name) return null;
+
+  const companyId = normalizeCompanyId(body.company_id || body.company || body.company_name);
+  const meetingDate = cleanDate(cleanText(body.meeting_date || body.appointment_date || body.recorded_at || body.created_at).slice(0, 10));
+  const candidates = meetings.filter((meeting) => {
+    if (companyId && meeting.company_id !== companyId) return false;
+    if (meetingDate && cleanText(meeting.meeting_date) !== meetingDate) return false;
+    const meetingName = normalizedName(meeting.client_name);
+    return meetingName && (meetingName === name || meetingName.includes(name) || name.includes(meetingName));
+  });
+
+  return candidates[0] || null;
+}
+
+function normalizeCompanyId(value) {
+  const text = normalizeForMatch(value);
+  if (!text) return "";
+  if (Object.values(COMPANY_IDS).includes(cleanText(value))) return cleanText(value);
+  if (text.includes("cuates")) return COMPANY_IDS.cuates;
+  if (text.includes("south") || text.includes("texas")) return COMPANY_IDS.south;
+  return "";
+}
+
+async function insertMissingMeetingNotes(rows) {
+  const cleanRows = rows
+    .filter((row) => row.meeting_id && row.company_id && cleanText(row.note_text))
+    .map((row) => ({
+      meeting_id: row.meeting_id,
+      company_id: row.company_id,
+      note_text: cleanText(row.note_text),
+      note_type: oneOf(row.note_type || "closer", noteTypes, "Note type"),
+      created_by_name: cleanText(row.created_by_name),
+      created_at: cleanDateTime(row.created_at) || new Date().toISOString(),
+    }));
+
+  if (!cleanRows.length) return;
+  const existing = await supabaseSelectAll("meeting_notes", "meeting_id,note_type,note_text");
+  const existingKeys = new Set(existing.map((row) => `${row.meeting_id}:${row.note_type}:${hashText(row.note_text)}`));
+  const missing = cleanRows.filter((row) => {
+    const key = `${row.meeting_id}:${row.note_type}:${hashText(row.note_text)}`;
+    if (existingKeys.has(key)) return false;
+    existingKeys.add(key);
+    return true;
+  });
+  if (missing.length) await supabaseInsert("meeting_notes", missing);
+}
+
 async function recordGhlSyncRun(row) {
   try {
     await supabaseInsert("ghl_sync_runs", [{
@@ -715,6 +957,15 @@ function requiredText(value, label) {
 
 function cleanText(value) {
   return String(value ?? "").trim();
+}
+
+function hashText(value) {
+  let hash = 0;
+  const text = cleanText(value);
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
 }
 
 function cleanDate(value) {

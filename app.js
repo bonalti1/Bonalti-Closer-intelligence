@@ -77,6 +77,7 @@ let state = {
   meetings: [],
   pipeline: [],
   notes: [],
+  activities: [],
   ghl: {
     configured: false,
     snapshots: [],
@@ -226,6 +227,7 @@ function filteredMeetings() {
   return state.meetings.filter((meeting) => {
     const pipeline = pipelineFor(meeting.id);
     const notes = notesFor(meeting.id).map((note) => note.note_text).join(" ");
+    const activities = activitiesFor(meeting.id).map((activity) => activity.activity_text).join(" ");
     const text = [
       meeting.client_name,
       meeting.notes,
@@ -238,6 +240,7 @@ function filteredMeetings() {
       ghlFor(meeting.id).assigned_to_name,
       ghlFor(meeting.id).last_note,
       notes,
+      activities,
       COMPANY_META[meeting.company_id]?.name,
       STAGE_LABELS[displayStage(meeting)],
     ].join(" ").toLowerCase();
@@ -530,7 +533,8 @@ function renderActivityItem(meeting) {
 function renderLeadCard(meeting) {
   const pipeline = pipelineFor(meeting.id);
   const ghl = ghlFor(meeting.id);
-  const notesCount = notesFor(meeting.id).length + (meeting.notes ? 1 : 0);
+  const activity = lastActivityFor(meeting.id);
+  const notesCount = notesFor(meeting.id).length + activitiesFor(meeting.id).length + (meeting.notes ? 1 : 0);
   return `
     <button class="lead-card" type="button" data-meeting-id="${meeting.id}">
       <div class="lead-topline">
@@ -548,6 +552,8 @@ function renderLeadCard(meeting) {
         <dd>${escapeHtml(ghl.assigned_to_name || pipeline.closer_name || "Unassigned")}</dd>
         <dt>Notas</dt>
         <dd>${notesCount}</dd>
+        <dt>Last touch</dt>
+        <dd>${escapeHtml(activity ? formatShortDate(activity.activity_at) : "None")}</dd>
       </dl>
     </button>
   `;
@@ -620,6 +626,8 @@ function renderDrawer(meetingId) {
   const company = COMPANY_META[meeting.company_id];
   const stage = displayStage(meeting);
   const noteRows = notesFor(meeting.id);
+  const activityRows = activitiesFor(meeting.id);
+  const lastActivity = lastActivityFor(meeting.id);
   const ghl = ghlFor(meeting.id);
 
   elements.drawerMeta.textContent = `${formatDate(meeting.meeting_date)} · ${company?.name || "Company"} · ${titleCase(meeting.meeting_type)}`;
@@ -633,6 +641,7 @@ function renderDrawer(meetingId) {
   elements.setterNotes.textContent = [
     meeting.notes ? `Setter notes: ${meeting.notes}` : "No setter notes.",
     ghl.last_note ? `GHL note: ${ghl.last_note}` : "",
+    lastActivity?.activity_text ? `Last activity: ${lastActivity.activity_text}` : "",
   ].filter(Boolean).join("\n");
 
   setFormValue(elements.pipelineForm, "meeting_id", meeting.id);
@@ -651,13 +660,29 @@ function renderDrawer(meetingId) {
   elements.saveState.textContent = "";
   elements.noteState.textContent = "";
 
-  elements.notesList.innerHTML = noteRows.length ? noteRows.map((note) => `
-    <div class="note-item">
-      <strong>${escapeHtml(note.created_by_name || "Closer")}</strong>
-      <span>${escapeHtml(formatDateTime(note.created_at))} · ${escapeHtml(titleCase(note.note_type))}</span>
-      <div>${escapeHtml(note.note_text)}</div>
-    </div>
-  `).join("") : '<div class="empty-state">No closer notes yet.</div>';
+  elements.notesList.innerHTML = `
+    ${activityRows.length ? `
+      <div class="activity-feed-title">GHL / PLAUD activity</div>
+      ${activityRows.slice(0, 8).map((activity) => `
+        <div class="note-item activity-note ${escapeHtml(activity.activity_source)}">
+          <strong>${escapeHtml(activity.closer_name || activity.activity_source.toUpperCase())}</strong>
+          <span>${escapeHtml(formatDateTime(activity.activity_at))} · ${escapeHtml(titleCase(activity.activity_source))} · ${escapeHtml(titleCase(activity.activity_type))}</span>
+          <div>${escapeHtml(activity.activity_text)}</div>
+        </div>
+      `).join("")}
+    ` : ""}
+    ${noteRows.length ? `
+      <div class="activity-feed-title">CRM notes</div>
+      ${noteRows.map((note) => `
+        <div class="note-item">
+          <strong>${escapeHtml(note.created_by_name || "Closer")}</strong>
+          <span>${escapeHtml(formatDateTime(note.created_at))} · ${escapeHtml(titleCase(note.note_type))}</span>
+          <div>${escapeHtml(note.note_text)}</div>
+        </div>
+      `).join("")}
+    ` : ""}
+    ${!activityRows.length && !noteRows.length ? '<div class="empty-state">No closer notes yet.</div>' : ""}
+  `;
 }
 
 async function savePipeline(event) {
@@ -794,6 +819,16 @@ function ghlFor(meetingId) {
     follow_up_date: "",
     last_note: "",
   };
+}
+
+function activitiesFor(meetingId) {
+  return (state.activities || []).filter((row) => row.meeting_id === meetingId);
+}
+
+function lastActivityFor(meetingId) {
+  return activitiesFor(meetingId)
+    .slice()
+    .sort((a, b) => new Date(b.activity_at || 0) - new Date(a.activity_at || 0))[0] || null;
 }
 
 function notesFor(meetingId) {

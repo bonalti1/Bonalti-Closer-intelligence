@@ -61,9 +61,17 @@ create table if not exists public.meeting_notes (
   created_by_name text not null default '',
   created_at timestamptz not null default now(),
   constraint meeting_notes_type_check check (
-    note_type in ('setter', 'closer', 'follow_up', 'status')
+    note_type in ('setter', 'closer', 'follow_up', 'status', 'ghl_activity', 'plaud_meeting')
   )
 );
+
+alter table public.meeting_notes
+  drop constraint if exists meeting_notes_type_check;
+
+alter table public.meeting_notes
+  add constraint meeting_notes_type_check check (
+    note_type in ('setter', 'closer', 'follow_up', 'status', 'ghl_activity', 'plaud_meeting')
+  );
 
 alter table public.meetings
   add column if not exists status_source text not null default 'setter',
@@ -173,6 +181,42 @@ create table if not exists public.ghl_sync_runs (
   )
 );
 
+create table if not exists public.ghl_activities (
+  id uuid primary key default gen_random_uuid(),
+  meeting_id uuid references public.meetings(id) on delete cascade,
+  company_id uuid references public.companies(id) on delete cascade,
+  ghl_contact_id text not null default '',
+  ghl_opportunity_id text not null default '',
+  external_id text not null default '',
+  activity_source text not null default 'ghl',
+  activity_type text not null default 'note',
+  activity_text text not null default '',
+  activity_at timestamptz not null default now(),
+  closer_name text not null default '',
+  raw_payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  unique (activity_source, external_id),
+  constraint ghl_activities_source_check check (
+    activity_source in ('ghl', 'plaud', 'zapier', 'manual_import')
+  ),
+  constraint ghl_activities_type_check check (
+    activity_type in ('note', 'call', 'sms', 'whatsapp', 'email', 'meeting_transcript', 'summary', 'other')
+  )
+);
+
+alter table public.ghl_activities
+  add column if not exists meeting_id uuid references public.meetings(id) on delete cascade,
+  add column if not exists company_id uuid references public.companies(id) on delete cascade,
+  add column if not exists ghl_contact_id text not null default '',
+  add column if not exists ghl_opportunity_id text not null default '',
+  add column if not exists external_id text not null default '',
+  add column if not exists activity_source text not null default 'ghl',
+  add column if not exists activity_type text not null default 'note',
+  add column if not exists activity_text text not null default '',
+  add column if not exists activity_at timestamptz not null default now(),
+  add column if not exists closer_name text not null default '',
+  add column if not exists raw_payload jsonb not null default '{}'::jsonb;
+
 create index if not exists closer_pipeline_meeting_idx on public.closer_pipeline (meeting_id);
 create index if not exists closer_pipeline_company_idx on public.closer_pipeline (company_id);
 create index if not exists closer_pipeline_closer_idx on public.closer_pipeline (closer_name);
@@ -189,6 +233,11 @@ create index if not exists ghl_lead_snapshots_pipeline_idx on public.ghl_lead_sn
 create index if not exists ghl_lead_snapshots_pipeline_stage_idx on public.ghl_lead_snapshots (ghl_pipeline_stage_id);
 create index if not exists ghl_lead_snapshots_synced_idx on public.ghl_lead_snapshots (synced_at desc);
 create index if not exists ghl_sync_runs_started_idx on public.ghl_sync_runs (started_at desc);
+create index if not exists ghl_activities_meeting_idx on public.ghl_activities (meeting_id, activity_at desc);
+create index if not exists ghl_activities_company_idx on public.ghl_activities (company_id, activity_at desc);
+create index if not exists ghl_activities_contact_idx on public.ghl_activities (ghl_contact_id);
+create index if not exists ghl_activities_opportunity_idx on public.ghl_activities (ghl_opportunity_id);
+create index if not exists ghl_activities_activity_at_idx on public.ghl_activities (activity_at desc);
 
 drop trigger if exists closer_pipeline_touch_updated_at on public.closer_pipeline;
 create trigger closer_pipeline_touch_updated_at
@@ -204,3 +253,4 @@ alter table public.closer_pipeline enable row level security;
 alter table public.meeting_notes enable row level security;
 alter table public.ghl_lead_snapshots enable row level security;
 alter table public.ghl_sync_runs enable row level security;
+alter table public.ghl_activities enable row level security;
