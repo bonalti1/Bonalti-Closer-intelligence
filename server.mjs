@@ -750,6 +750,7 @@ function sanitizePipeline(body) {
     follow_up_date: cleanDate(body.follow_up_date),
     closed_date: cleanDate(body.closed_date),
     deal_value: cleanMoney(body.deal_value),
+    pre_approved_amount: cleanMoney(body.pre_approved_amount),
     lost_reason: cleanText(body.lost_reason),
     closer_notes: cleanText(body.closer_notes),
   };

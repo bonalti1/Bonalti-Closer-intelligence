@@ -23,6 +23,7 @@ create table if not exists public.closer_pipeline (
   follow_up_date date,
   closed_date date,
   deal_value numeric(12, 2),
+  pre_approved_amount numeric(12, 2),
   lost_reason text not null default '',
   closer_notes text not null default '',
   created_at timestamptz not null default now(),
@@ -51,6 +52,9 @@ create table if not exists public.closer_pipeline (
     closer_status in ('pending', 'closed', 'lost')
   )
 );
+
+alter table public.closer_pipeline
+  add column if not exists pre_approved_amount numeric(12, 2);
 
 create table if not exists public.meeting_notes (
   id uuid primary key default gen_random_uuid(),

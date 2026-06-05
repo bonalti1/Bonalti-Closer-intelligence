@@ -127,6 +127,7 @@ const elements = {
   drawerTitle: document.querySelector("#drawerTitle"),
   drawerStatusRow: document.querySelector("#drawerStatusRow"),
   setterNotes: document.querySelector("#setterNotes"),
+  preApprovedField: document.querySelector("#preApprovedField"),
   pipelineForm: document.querySelector("#pipelineForm"),
   noteForm: document.querySelector("#noteForm"),
   saveState: document.querySelector("#saveState"),
@@ -278,6 +279,7 @@ function matchesPeriod(meeting, period) {
 
 function renderMetrics(meetings) {
   const isLending = elements.companyFilter.value === COMPANY_IDS.lending;
+  const preApprovedTotal = isLending ? sumPreApproved(meetings) : 0;
   const attended = meetings.filter((meeting) => meeting.status === "atendida" || meeting.status === "cerrado").length;
   const noShows = meetings.filter((meeting) => meeting.status === "no_show" || displayStage(meeting) === "no_show").length;
   const potential = meetings.filter((meeting) => displayStage(meeting) === "lead_potencial").length;
@@ -289,6 +291,7 @@ function renderMetrics(meetings) {
   const metrics = isLending
     ? [
         ["Mortgage meetings", meetings.length, "neutral"],
+        ["Pre-approved total", formatMoney(preApprovedTotal), "approved"],
         ["No-shows", noShows, "neutral"],
         ["Attended", attended, "neutral"],
         ["Not qualified", notQualified, "neutral"],
@@ -468,6 +471,7 @@ function renderReports(meetings) {
   const closeRate = percent(closed, attended || reportRows.length);
   const showRate = percent(attended, reportRows.length);
   const noShowRate = percent(noShows, reportRows.length);
+  const preApprovedTotal = isLending ? sumPreApproved(reportRows) : 0;
   const reportTitle = isLending ? "Lending Sales Report" : "Construction Sales Report";
 
   elements.contentArea.innerHTML = `
@@ -486,6 +490,7 @@ function renderReports(meetings) {
 
       <div class="report-stats">
         <div><strong>${reportRows.length}</strong><span>Total meetings</span></div>
+        ${isLending ? `<div><strong>${escapeHtml(formatMoney(preApprovedTotal))}</strong><span>Pre-approved total</span></div>` : ""}
         <div><strong>${attended}</strong><span>Attended</span></div>
         <div><strong>${closed}</strong><span>Closed</span></div>
         <div><strong>${closeRate}</strong><span>Close rate</span></div>
@@ -623,13 +628,14 @@ function renderReportRow(meeting, isLending) {
   const pipeline = pipelineFor(meeting.id);
   const activity = lastActivityFor(meeting.id);
   const note = pipeline.closer_notes || activity?.activity_text || meeting.notes || pipeline.lost_reason || "No note captured yet.";
+  const preApproved = isLending && Number(pipeline.pre_approved_amount) > 0 ? `Pre-approved: ${formatMoney(pipeline.pre_approved_amount)}. ` : "";
   return `
     <button class="report-row" type="button" data-meeting-id="${meeting.id}">
       <strong>${escapeHtml(meeting.client_name)}</strong>
       <span>${escapeHtml(formatShortDate(meeting.meeting_date))}</span>
       <span>${escapeHtml(outcomeLabel(meeting, isLending))}</span>
       <span>${escapeHtml(activity ? formatDateTime(activity.activity_at) : "No activity")}</span>
-      <span>${escapeHtml(note)}</span>
+      <span>${escapeHtml(`${preApproved}${note}`)}</span>
     </button>
   `;
 }
@@ -702,12 +708,14 @@ function currentReportText() {
   const followUps = reportRows.filter(isFollowUpDue);
   const missingNotes = reportRows.filter(hasMissingCloserNote);
   const noRecentTouch = reportRows.filter((meeting) => !lastActivityFor(meeting.id) && !notesFor(meeting.id).length && !meeting.notes);
+  const preApprovedTotal = isLending ? sumPreApproved(reportRows) : 0;
 
   const lines = [
     `${isLending ? "Lending Sales Report" : "Construction Sales Report"}`,
     `${company.name} | ${formatDateRangeLabel()}`,
     "",
     `Total meetings: ${reportRows.length}`,
+    ...(isLending ? [`Pre-approved total: ${formatMoney(preApprovedTotal)}`] : []),
     `Attended: ${attended}`,
     `Closed: ${closed}`,
     `Close rate: ${percent(closed, attended || reportRows.length)}`,
@@ -728,6 +736,7 @@ function currentReportText() {
         `${index + 1}. ${meeting.client_name}`,
         `   Date: ${formatShortDate(meeting.meeting_date)}`,
         `   Outcome: ${outcomeLabel(meeting, isLending)}`,
+        ...(isLending ? [`   Pre-approved: ${formatMoney(pipeline.pre_approved_amount || 0)}`] : []),
         `   Last touch: ${activity ? formatDateTime(activity.activity_at) : "No activity"}`,
         `   Notes: ${note}`,
       ].join("\n");
@@ -807,8 +816,10 @@ function renderDrawer(meetingId) {
   setFormValue(elements.pipelineForm, "follow_up_date", pipeline.follow_up_date || "");
   setFormValue(elements.pipelineForm, "closed_date", pipeline.closed_date || "");
   setFormValue(elements.pipelineForm, "deal_value", pipeline.deal_value ?? "");
+  setFormValue(elements.pipelineForm, "pre_approved_amount", pipeline.pre_approved_amount ?? "");
   setFormValue(elements.pipelineForm, "lost_reason", pipeline.lost_reason);
   setFormValue(elements.pipelineForm, "closer_notes", pipeline.closer_notes);
+  if (elements.preApprovedField) elements.preApprovedField.hidden = meeting.meeting_type !== "lender";
   setFormValue(elements.noteForm, "meeting_id", meeting.id);
   setFormValue(elements.noteForm, "company_id", meeting.company_id);
   elements.saveState.textContent = "";
@@ -959,6 +970,7 @@ function pipelineFor(meetingId) {
     follow_up_date: "",
     closed_date: "",
     deal_value: "",
+    pre_approved_amount: "",
     lost_reason: "",
     closer_notes: "",
   };
@@ -1208,6 +1220,19 @@ function monthYear(date) {
 
 function percent(value, base) {
   return base ? `${Math.round((value / base) * 100)}%` : "0%";
+}
+
+function sumPreApproved(meetings) {
+  return meetings.reduce((total, meeting) => total + (Number(pipelineFor(meeting.id).pre_approved_amount) || 0), 0);
+}
+
+function formatMoney(value) {
+  const amount = Number(value) || 0;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(amount);
 }
 
 function titleCase(value) {
