@@ -318,6 +318,7 @@ function renderDashboard(meetings) {
   const isLending = elements.companyFilter.value === COMPANY_IDS.lending;
   const funnel = isLending ? LENDING_FUNNEL : CONSTRUCTION_FUNNEL;
   const totals = stageTotals(meetings, isLending);
+  const currentStageTotals = funnelStageTotals(meetings, isLending);
 
   elements.contentArea.innerHTML = `
     <section class="movement-card">
@@ -346,7 +347,8 @@ function renderDashboard(meetings) {
           </div>
         </div>
         <div class="funnel-stack">
-          ${funnel.map(([key, label]) => renderFunnelRow(label, totals[key], meetings.length, ["qualified", "closed"].includes(key) ? "green" : "gradient")).join("")}
+          ${renderFunnelRow(isLending ? "Total Mortgage Meetings" : "Total Construction Meetings", meetings.length, meetings.length, "base")}
+          ${funnel.map(([key, label]) => renderFunnelRow(label, currentStageTotals[key], meetings.length, ["qualified", "closed"].includes(key) ? "green" : "gradient")).join("")}
         </div>
       </div>
 
@@ -377,7 +379,7 @@ function renderMovementItem(label, value, note) {
 }
 
 function renderFunnelRow(label, value, base, tone) {
-  const percent = base ? Math.round((value / base) * 100) : 0;
+  const percent = tone === "base" ? 100 : base ? Math.round((value / base) * 100) : 0;
   return `
     <div class="funnel-row ${tone}">
       <div>
@@ -1061,16 +1063,21 @@ function monthName(date) {
 }
 
 function stageTotals(meetings, isLending) {
-  const totals = {};
-  (isLending ? LENDING_FUNNEL : CONSTRUCTION_FUNNEL).forEach(([key]) => {
-    totals[key] = meetings.filter((meeting) => meetingOutcomeKey(meeting, isLending) === key).length;
-  });
+  const totals = funnelStageTotals(meetings, isLending);
   totals.attended = meetings.filter((meeting) => meeting.status === "atendida" || meeting.status === "cerrado").length;
   totals.noShows = totals.noShow || 0;
   totals.needFollowUp = totals.needFollowUp || 0;
   totals.highlyInterested = totals.highlyInterested || 0;
   totals.qualified = totals.qualified || 0;
   totals.closed = totals.closed || 0;
+  return totals;
+}
+
+function funnelStageTotals(meetings, isLending) {
+  const totals = {};
+  (isLending ? LENDING_FUNNEL : CONSTRUCTION_FUNNEL).forEach(([key]) => {
+    totals[key] = meetings.filter((meeting) => meetingOutcomeKey(meeting, isLending) === key).length;
+  });
   return totals;
 }
 

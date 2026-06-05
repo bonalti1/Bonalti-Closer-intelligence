@@ -751,6 +751,10 @@ body.theme-cuates .department-title h1 span {
   background: linear-gradient(90deg, #148451, #66c084);
 }
 
+.funnel-row.base {
+  background: var(--brand-primary);
+}
+
 .funnel-row strong,
 .funnel-row span {
   display: block;
