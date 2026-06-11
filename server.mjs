@@ -391,7 +391,6 @@ async function buildDailyConstructionReport(reportDate) {
   const meetings = meetingRows
     .filter(isCrmMeeting)
     .filter((meeting) => meeting.meeting_type === "construction")
-    .filter((meeting) => meeting.meeting_date === reportDate)
     .filter((meeting) => [COMPANY_IDS.south, COMPANY_IDS.cuates].includes(meeting.company_id));
   const meetingIds = new Set(meetings.map((meeting) => meeting.id));
   const pipelines = pipelineResult.rows.filter((row) => meetingIds.has(row.meeting_id));
@@ -399,12 +398,14 @@ async function buildDailyConstructionReport(reportDate) {
   const snapshots = ghlResult.rows.filter((row) => meetingIds.has(row.meeting_id));
   const activities = activityResult.rows.filter((row) => meetingIds.has(row.meeting_id));
 
-  const rows = meetings.map((meeting) => summarizeConstructionMeeting(meeting, {
-    pipeline: newestForMeeting(pipelines, meeting.id, "updated_at"),
-    snapshot: newestForMeeting(snapshots, meeting.id, "updated_at"),
-    notes: notes.filter((row) => row.meeting_id === meeting.id),
-    activities: activities.filter((row) => row.meeting_id === meeting.id),
-  }));
+  const rows = meetings
+    .map((meeting) => summarizeConstructionMeeting(meeting, {
+      pipeline: newestForMeeting(pipelines, meeting.id, "updated_at"),
+      snapshot: newestForMeeting(snapshots, meeting.id, "updated_at"),
+      notes: notes.filter((row) => row.meeting_id === meeting.id),
+      activities: activities.filter((row) => row.meeting_id === meeting.id),
+    }))
+    .filter((row) => row.reportDate === reportDate);
 
   const totals = {
     total: rows.length,
@@ -432,13 +433,16 @@ async function buildDailyConstructionReport(reportDate) {
 
 function summarizeConstructionMeeting(meeting, context) {
   const stage = dailyStage(meeting, context.pipeline, context.snapshot);
-  const latestNote = dailyLatestNote(meeting, context);
+  const rawNote = dailyLatestRawNote(meeting, context);
+  const latestNote = compactSummaryText(rawNote);
+  const reportDate = bestMeetingReportDate(meeting, context, rawNote);
   const attendance = attendanceForStatus(meeting.status);
   return {
     id: meeting.id,
     companyId: meeting.company_id,
     clientName: meeting.client_name,
     meetingDate: meeting.meeting_date,
+    reportDate,
     status: meeting.status,
     statusSource: meeting.status_source,
     statusUpdatedAt: meeting.status_updated_at,
@@ -513,14 +517,14 @@ function outcomeLabelForStage(stage, meeting) {
   return "Scheduled";
 }
 
-function dailyLatestNote(meeting, { pipeline, snapshot, notes, activities }) {
+function dailyLatestRawNote(meeting, { pipeline, snapshot, notes, activities }) {
   const orderedNotes = notes
     .filter((note) => cleanText(note.note_text))
     .sort((a, b) => compareDatesDesc(a.created_at, b.created_at));
   const orderedActivities = activities
     .filter((activity) => cleanText(activity.activity_text))
     .sort((a, b) => compareDatesDesc(a.activity_at, b.activity_at));
-  return compactSummaryText(
+  return cleanText(
     orderedNotes[0]?.note_text ||
     orderedActivities[0]?.activity_text ||
     snapshot?.last_note ||
@@ -529,6 +533,91 @@ function dailyLatestNote(meeting, { pipeline, snapshot, notes, activities }) {
     meeting.notes ||
     ""
   );
+}
+
+function bestMeetingReportDate(meeting, { snapshot }, rawNote) {
+  return (
+    appointmentDateFromText(rawNote) ||
+    appointmentDateFromGhlPayload(snapshot?.raw_payload) ||
+    cleanDate(meeting.meeting_date)
+  );
+}
+
+function appointmentDateFromGhlPayload(payload) {
+  if (!payload || typeof payload !== "object") return "";
+
+  const values = [];
+  const customFields = [
+    payload.customFields,
+    payload.custom_fields,
+    payload.contact?.customFields,
+    payload.contact?.custom_fields,
+  ].filter(Array.isArray).flat();
+
+  for (const field of customFields) {
+    values.push(
+      field?.fieldValueString,
+      field?.fieldValue,
+      field?.field_value,
+      field?.value
+    );
+  }
+
+  values.push(
+    payload.appointmentDate,
+    payload.appointment_date,
+    payload.meetingDate,
+    payload.meeting_date,
+    payload.calendarEvent?.startTime,
+    payload.calendar_event?.start_time
+  );
+
+  return appointmentDateFromText(values.filter(Boolean).join(" "));
+}
+
+const MONTH_NUMBER_BY_NAME = {
+  january: 1,
+  jan: 1,
+  february: 2,
+  feb: 2,
+  march: 3,
+  mar: 3,
+  april: 4,
+  apr: 4,
+  may: 5,
+  june: 6,
+  jun: 6,
+  july: 7,
+  jul: 7,
+  august: 8,
+  aug: 8,
+  september: 9,
+  sept: 9,
+  sep: 9,
+  october: 10,
+  oct: 10,
+  november: 11,
+  nov: 11,
+  december: 12,
+  dec: 12,
+};
+
+function appointmentDateFromText(value) {
+  const text = cleanText(value);
+  if (!text) return "";
+
+  const iso = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+  if (iso) return iso[0];
+
+  const monthDate = text.match(/\b(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sept|Sep|October|Oct|November|Nov|December|Dec)\s+(\d{1,2}),\s*(20\d{2})\b/i);
+  if (!monthDate) return "";
+
+  const month = MONTH_NUMBER_BY_NAME[monthDate[1].toLowerCase()];
+  const day = Number(monthDate[2]);
+  const year = Number(monthDate[3]);
+  if (!month || day < 1 || day > 31) return "";
+
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 function nextStepForMeeting(meeting, stage, attendanceKey) {
