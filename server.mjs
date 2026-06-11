@@ -23,8 +23,11 @@ const config = {
   crmStartDate: process.env.CRM_START_DATE || "2026-06-01",
   crmSyncSecret: process.env.CRM_SYNC_SECRET || "",
   crmWebhookSecret: process.env.CRM_WEBHOOK_SECRET || process.env.CRM_SYNC_SECRET || "",
-  dailyReportWebhookUrl: process.env.DAILY_REPORT_WEBHOOK_URL || "",
+  dailyReportEnabled: process.env.DAILY_REPORT_ENABLED !== "false",
+  dailyReportChannel: process.env.DAILY_REPORT_CHANNEL || "ghl",
+  dailyReportTimezone: process.env.DAILY_REPORT_TIMEZONE || "America/Chicago",
   dailyReportTo: process.env.DAILY_REPORT_TO || "",
+  ghlDailyReportWebhookUrl: process.env.GHL_DAILY_REPORT_WEBHOOK_URL || process.env.DAILY_REPORT_WEBHOOK_URL || "",
 };
 
 const companies = [
@@ -582,35 +585,67 @@ function dailyManagerNote(report) {
 }
 
 async function deliverDailyReport(report) {
-  if (!config.dailyReportWebhookUrl) {
+  if (!config.dailyReportEnabled) {
     return {
       sent: false,
-      reason: "DAILY_REPORT_WEBHOOK_URL is not configured yet.",
+      reason: "DAILY_REPORT_ENABLED is false.",
     };
   }
 
-  const response = await fetch(config.dailyReportWebhookUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      to: config.dailyReportTo,
-      date: report.date,
-      message: report.message,
-      report,
-    }),
-  });
-
-  if (!response.ok) {
+  if (config.dailyReportChannel !== "ghl") {
     return {
       sent: false,
-      status: response.status,
-      error: await response.text(),
+      reason: `DAILY_REPORT_CHANNEL=${config.dailyReportChannel} is not supported yet.`,
     };
+  }
+
+  if (!config.ghlDailyReportWebhookUrl) {
+    return {
+      sent: false,
+      reason: "GHL_DAILY_REPORT_WEBHOOK_URL is not configured yet.",
+    };
+  }
+
+  const recipients = config.dailyReportTo
+    .split(",")
+    .map((phone) => cleanText(phone))
+    .filter(Boolean);
+
+  if (!recipients.length) {
+    return {
+      sent: false,
+      reason: "DAILY_REPORT_TO is not configured yet.",
+    };
+  }
+
+  const results = [];
+  for (const phone of recipients) {
+    const response = await fetch(config.ghlDailyReportWebhookUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: report.message,
+        phone,
+        firstName: "Daily",
+        lastName: "Report",
+        report_date: report.date,
+        source: "bonalti-closer-intelligence",
+      }),
+    });
+
+    results.push({
+      phone,
+      sent: response.ok,
+      status: response.status,
+      error: response.ok ? "" : await response.text(),
+    });
   }
 
   return {
-    sent: true,
-    status: response.status,
+    sent: results.every((result) => result.sent),
+    channel: "ghl",
+    recipients: results.length,
+    results,
   };
 }
 

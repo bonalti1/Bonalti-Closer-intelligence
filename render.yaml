@@ -28,9 +28,15 @@ services:
         sync: false
       - key: CRM_WEBHOOK_SECRET
         sync: false
-      - key: DAILY_REPORT_WEBHOOK_URL
-        sync: false
+      - key: DAILY_REPORT_ENABLED
+        value: true
+      - key: DAILY_REPORT_CHANNEL
+        value: ghl
+      - key: DAILY_REPORT_TIMEZONE
+        value: America/Chicago
       - key: DAILY_REPORT_TO
+        sync: false
+      - key: GHL_DAILY_REPORT_WEBHOOK_URL
         sync: false
 
   - type: cron
@@ -60,3 +66,9 @@ services:
         value: https://bonalti-closer-crm.onrender.com/api/reports/daily-construction
       - key: CRM_SYNC_SECRET
         sync: false
+      - key: DAILY_REPORT_ENABLED
+        value: true
+      - key: DAILY_REPORT_CHANNEL
+        value: ghl
+      - key: DAILY_REPORT_TIMEZONE
+        value: America/Chicago
