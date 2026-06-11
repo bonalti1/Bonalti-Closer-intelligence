@@ -666,7 +666,8 @@ function dailyManagerNote(report) {
   if (!report.totals.total) return "No construction meetings yesterday.";
   const notes = [];
   if (report.totals.needsReview) {
-    notes.push(`${report.totals.needsReview} meeting${plural(report.totals.needsReview)} still need confirmed attendance.`);
+    const verb = report.totals.needsReview === 1 ? "needs" : "need";
+    notes.push(`${report.totals.needsReview} meeting${plural(report.totals.needsReview)} still ${verb} confirmed attendance.`);
   }
   if (report.totals.noShow) {
     const verb = report.totals.noShow === 1 ? "needs" : "need";
