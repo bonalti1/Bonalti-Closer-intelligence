@@ -448,7 +448,7 @@ function summarizeConstructionMeeting(meeting, context) {
     outcomeKey: outcomeKeyForStage(stage, meeting),
     outcomeLabel: outcomeLabelForStage(stage, meeting),
     stage,
-    note: latestNote || "Note does not appear.",
+    note: latestNote || "Pending note from the sales closer.",
     nextStep: nextStepForMeeting(meeting, stage, attendance.key),
   };
 }
