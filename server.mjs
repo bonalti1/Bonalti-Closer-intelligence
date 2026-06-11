@@ -23,6 +23,8 @@ const config = {
   crmStartDate: process.env.CRM_START_DATE || "2026-06-01",
   crmSyncSecret: process.env.CRM_SYNC_SECRET || "",
   crmWebhookSecret: process.env.CRM_WEBHOOK_SECRET || process.env.CRM_SYNC_SECRET || "",
+  dailyReportWebhookUrl: process.env.DAILY_REPORT_WEBHOOK_URL || "",
+  dailyReportTo: process.env.DAILY_REPORT_TO || "",
 };
 
 const companies = [
@@ -144,6 +146,19 @@ const server = http.createServer(async (req, res) => {
         locationConfigured: Boolean(config.ghlLocationId),
         lastSync: await latestGhlSyncRun(),
       });
+    }
+
+    if (url.pathname === "/api/reports/daily-construction") {
+      if (req.method === "POST") requireSyncSecret(req);
+      const requestedDate = cleanDate(url.searchParams.get("date"));
+      const report = await buildDailyConstructionReport(requestedDate || previousLocalDate());
+
+      if (req.method === "POST") {
+        const delivery = await deliverDailyReport(report);
+        return sendJson(res, { ok: true, report, delivery });
+      }
+
+      return sendJson(res, { ok: true, report });
     }
 
     if (url.pathname === "/api/ghl/import" && req.method === "POST") {
@@ -349,6 +364,254 @@ async function ensureCompanies() {
 async function latestGhlSyncRun() {
   const result = await safeSelect("ghl_sync_runs", "*", { order: "started_at.desc", limit: 1 });
   return result.rows[0] || null;
+}
+
+async function buildDailyConstructionReport(reportDate) {
+  await ensureCompanies();
+  const [meetingRows, pipelineResult, notesResult, ghlResult, activityResult] = await Promise.all([
+    supabaseSelectAll("meetings", "*", { order: "meeting_date.asc,created_at.asc" }),
+    safeSelect("closer_pipeline", "*", { order: "updated_at.desc" }),
+    safeSelect("meeting_notes", "*", { order: "created_at.desc" }),
+    safeSelect("ghl_lead_snapshots", "*", { order: "updated_at.desc" }),
+    safeSelect("ghl_activities", "*", { order: "activity_at.desc" }),
+  ]);
+
+  const meetings = meetingRows
+    .filter(isCrmMeeting)
+    .filter((meeting) => meeting.meeting_type === "construction")
+    .filter((meeting) => meeting.meeting_date === reportDate)
+    .filter((meeting) => [COMPANY_IDS.south, COMPANY_IDS.cuates].includes(meeting.company_id));
+  const meetingIds = new Set(meetings.map((meeting) => meeting.id));
+  const pipelines = pipelineResult.rows.filter((row) => meetingIds.has(row.meeting_id));
+  const notes = notesResult.rows.filter((row) => meetingIds.has(row.meeting_id));
+  const snapshots = ghlResult.rows.filter((row) => meetingIds.has(row.meeting_id));
+  const activities = activityResult.rows.filter((row) => meetingIds.has(row.meeting_id));
+
+  const rows = meetings.map((meeting) => summarizeConstructionMeeting(meeting, {
+    pipeline: newestForMeeting(pipelines, meeting.id, "updated_at"),
+    snapshot: newestForMeeting(snapshots, meeting.id, "updated_at"),
+    notes: notes.filter((row) => row.meeting_id === meeting.id),
+    activities: activities.filter((row) => row.meeting_id === meeting.id),
+  }));
+
+  const totals = {
+    total: rows.length,
+    showed: rows.filter((row) => row.attendanceKey === "showed").length,
+    noShow: rows.filter((row) => row.attendanceKey === "no_show").length,
+    rescheduled: rows.filter((row) => row.attendanceKey === "rescheduled").length,
+    needsReview: rows.filter((row) => row.attendanceKey === "needs_review").length,
+    closed: rows.filter((row) => row.outcomeKey === "closed").length,
+  };
+
+  const report = {
+    date: reportDate,
+    label: formatReportDate(reportDate),
+    generatedAt: new Date().toISOString(),
+    totals,
+    companies: [
+      companyReport("South Texas Builders", "🏢", COMPANY_IDS.south, rows),
+      companyReport("Cuates Construction", "🟠", COMPANY_IDS.cuates, rows),
+    ],
+  };
+  report.managerNote = dailyManagerNote(report);
+  report.message = formatDailyConstructionMessage(report);
+  return report;
+}
+
+function summarizeConstructionMeeting(meeting, context) {
+  const stage = dailyStage(meeting, context.pipeline, context.snapshot);
+  const latestNote = dailyLatestNote(meeting, context);
+  const attendance = attendanceForStatus(meeting.status);
+  return {
+    id: meeting.id,
+    companyId: meeting.company_id,
+    clientName: meeting.client_name,
+    meetingDate: meeting.meeting_date,
+    status: meeting.status,
+    statusSource: meeting.status_source,
+    statusUpdatedAt: meeting.status_updated_at,
+    attendanceKey: attendance.key,
+    attendanceLabel: attendance.label,
+    attendanceEmoji: attendance.emoji,
+    outcomeKey: outcomeKeyForStage(stage, meeting),
+    outcomeLabel: outcomeLabelForStage(stage, meeting),
+    stage,
+    note: latestNote || "No note yet.",
+    nextStep: nextStepForMeeting(meeting, stage, attendance.key),
+  };
+}
+
+function companyReport(name, emoji, companyId, rows) {
+  const meetings = rows.filter((row) => row.companyId === companyId);
+  return {
+    name,
+    emoji,
+    companyId,
+    total: meetings.length,
+    meetings,
+  };
+}
+
+function newestForMeeting(rows, meetingId, dateField) {
+  return rows
+    .filter((row) => row.meeting_id === meetingId)
+    .sort((a, b) => compareDatesDesc(a[dateField], b[dateField]))[0] || null;
+}
+
+function attendanceForStatus(status) {
+  if (status === "atendida" || status === "cerrado") {
+    return { key: "showed", label: "Showed", emoji: "✅" };
+  }
+  if (status === "no_show") {
+    return { key: "no_show", label: "No Show", emoji: "❌" };
+  }
+  if (status === "reagendo") {
+    return { key: "rescheduled", label: "Rescheduled", emoji: "🔁" };
+  }
+  return { key: "needs_review", label: "Needs Review", emoji: "⚠️" };
+}
+
+function dailyStage(meeting, pipeline, snapshot) {
+  if (snapshot?.pipeline_stage && pipelineStages.includes(snapshot.pipeline_stage)) return snapshot.pipeline_stage;
+  if (pipeline?.pipeline_stage && pipelineStages.includes(pipeline.pipeline_stage)) return pipeline.pipeline_stage;
+  if (meeting.status === "cerrado") return "closed";
+  if (meeting.status === "no_show") return "no_show";
+  if (meeting.status === "reagendo") return "follow_up";
+  if (meeting.status === "descalificado") return "not_interested";
+  if (meeting.status === "atendida") return "contactado_con_tarea";
+  return "reunion_agendada_celular";
+}
+
+function outcomeKeyForStage(stage, meeting) {
+  if (stage === "closed" || meeting.status === "cerrado") return "closed";
+  if (stage === "lead_potencial") return "highly_interested";
+  if (stage === "not_interested" || stage === "did_not_approve_mortgage_loan" || meeting.status === "descalificado") return "not_interested";
+  if (stage === "contactado_con_tarea" || stage === "follow_up" || meeting.status === "reagendo") return "need_follow_up";
+  if (stage === "no_show" || meeting.status === "no_show") return "no_show";
+  return "scheduled";
+}
+
+function outcomeLabelForStage(stage, meeting) {
+  const key = outcomeKeyForStage(stage, meeting);
+  if (key === "closed") return "Closed";
+  if (key === "highly_interested") return "Highly Interested";
+  if (key === "not_interested") return "Not Interested";
+  if (key === "need_follow_up") return "Need Follow Up";
+  if (key === "no_show") return "No Show";
+  return "Scheduled";
+}
+
+function dailyLatestNote(meeting, { pipeline, snapshot, notes, activities }) {
+  const orderedNotes = notes
+    .filter((note) => cleanText(note.note_text))
+    .sort((a, b) => compareDatesDesc(a.created_at, b.created_at));
+  const orderedActivities = activities
+    .filter((activity) => cleanText(activity.activity_text))
+    .sort((a, b) => compareDatesDesc(a.activity_at, b.activity_at));
+  return compactSummaryText(
+    orderedNotes[0]?.note_text ||
+    orderedActivities[0]?.activity_text ||
+    snapshot?.last_note ||
+    pipeline?.closer_notes ||
+    pipeline?.lost_reason ||
+    meeting.notes ||
+    ""
+  );
+}
+
+function nextStepForMeeting(meeting, stage, attendanceKey) {
+  if (attendanceKey === "needs_review") return "Data Entry confirm attendance before tomorrow's recap.";
+  if (attendanceKey === "no_show") return "Data Entry confirm reschedule attempt.";
+  if (attendanceKey === "rescheduled") return "Confirm new date/time is saved.";
+  if (stage === "closed" || meeting.status === "cerrado") return "No immediate action; closed lead.";
+  if (stage === "lead_potencial") return "Claudia follow up today.";
+  if (stage === "not_interested" || stage === "did_not_approve_mortgage_loan") return "No active follow-up unless re-engaged.";
+  return "Closer update next step/status.";
+}
+
+function formatDailyConstructionMessage(report) {
+  const lines = [
+    "☀️ Bonalti Closer Recap",
+    `For ${report.label}`,
+    "",
+    "🏗️ Construction Meetings",
+    `Total: ${report.totals.total}`,
+    `✅ Showed: ${report.totals.showed}`,
+    `❌ No Show: ${report.totals.noShow}`,
+    `🔁 Rescheduled: ${report.totals.rescheduled}`,
+    `⚠️ Needs Review: ${report.totals.needsReview}`,
+    `🟢 Closed: ${report.totals.closed}`,
+  ];
+
+  for (const company of report.companies) {
+    lines.push("", `${company.emoji} ${company.name}`);
+    if (!company.meetings.length) {
+      lines.push("No construction meetings.");
+      continue;
+    }
+    company.meetings.forEach((meeting, index) => {
+      lines.push(
+        `${index + 1}. ${meeting.clientName} — ${meeting.attendanceEmoji} ${meeting.attendanceLabel} / ${meeting.outcomeLabel}`,
+        `Note: ${meeting.note}`,
+        `Next: ${meeting.nextStep}`
+      );
+    });
+  }
+
+  lines.push("", "Manager Note:", report.managerNote);
+  return lines.join("\n");
+}
+
+function dailyManagerNote(report) {
+  if (!report.totals.total) return "No construction meetings yesterday.";
+  const notes = [];
+  if (report.totals.needsReview) {
+    notes.push(`${report.totals.needsReview} meeting${plural(report.totals.needsReview)} still need confirmed attendance.`);
+  }
+  if (report.totals.noShow) {
+    const verb = report.totals.noShow === 1 ? "needs" : "need";
+    notes.push(`${report.totals.noShow} no-show${plural(report.totals.noShow)} ${verb} a reschedule attempt.`);
+  }
+  if (report.totals.showed && !report.totals.needsReview) {
+    notes.push("Confirmed attendance is clean for yesterday.");
+  }
+  if (report.totals.closed) {
+    notes.push(`${report.totals.closed} lead${plural(report.totals.closed)} marked closed.`);
+  }
+  return notes.join(" ") || "Review closer notes and make sure every lead has a next step.";
+}
+
+async function deliverDailyReport(report) {
+  if (!config.dailyReportWebhookUrl) {
+    return {
+      sent: false,
+      reason: "DAILY_REPORT_WEBHOOK_URL is not configured yet.",
+    };
+  }
+
+  const response = await fetch(config.dailyReportWebhookUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      to: config.dailyReportTo,
+      date: report.date,
+      message: report.message,
+      report,
+    }),
+  });
+
+  if (!response.ok) {
+    return {
+      sent: false,
+      status: response.status,
+      error: await response.text(),
+    };
+  }
+
+  return {
+    sent: true,
+    status: response.status,
+  };
 }
 
 async function fetchGhlOpportunities() {
@@ -979,6 +1242,59 @@ function cleanDateTime(value) {
   if (!text) return null;
   const date = new Date(text);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function previousLocalDate() {
+  const today = localDateParts(new Date());
+  const utcNoon = new Date(Date.UTC(today.year, today.month - 1, today.day, 12));
+  utcNoon.setUTCDate(utcNoon.getUTCDate() - 1);
+  return localDateString(utcNoon);
+}
+
+function localDateParts(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  return {
+    year: Number(parts.find((part) => part.type === "year")?.value),
+    month: Number(parts.find((part) => part.type === "month")?.value),
+    day: Number(parts.find((part) => part.type === "day")?.value),
+  };
+}
+
+function localDateString(date) {
+  const parts = localDateParts(date);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function formatReportDate(dateText) {
+  const date = new Date(`${dateText}T12:00:00Z`);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function compareDatesDesc(a, b) {
+  return new Date(cleanDateTime(b) || 0).getTime() - new Date(cleanDateTime(a) || 0).getTime();
+}
+
+function compactSummaryText(value, maxLength = 145) {
+  const text = htmlToText(value)
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "";
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trim()}…`;
+}
+
+function plural(count) {
+  return count === 1 ? "" : "s";
 }
 
 function normalizedName(value) {

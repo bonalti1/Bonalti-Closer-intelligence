@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "sync:ghl": "node scripts/sync-ghl.mjs"
+    "sync:ghl": "node scripts/sync-ghl.mjs",
+    "send:daily-construction": "node scripts/send-daily-construction-report.mjs"
   }
 }

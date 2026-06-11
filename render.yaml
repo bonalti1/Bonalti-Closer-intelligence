@@ -28,6 +28,10 @@ services:
         sync: false
       - key: CRM_WEBHOOK_SECRET
         sync: false
+      - key: DAILY_REPORT_WEBHOOK_URL
+        sync: false
+      - key: DAILY_REPORT_TO
+        sync: false
 
   - type: cron
     name: bonalti-closer-crm-ghl-sync
@@ -40,5 +44,19 @@ services:
         value: 20
       - key: CRM_SYNC_URL
         value: https://bonalti-closer-crm.onrender.com/api/ghl/sync
+      - key: CRM_SYNC_SECRET
+        sync: false
+
+  - type: cron
+    name: bonalti-closer-crm-daily-construction-report
+    runtime: node
+    schedule: "10 13 * * *"
+    buildCommand: ""
+    startCommand: npm run send:daily-construction
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DAILY_REPORT_URL
+        value: https://bonalti-closer-crm.onrender.com/api/reports/daily-construction
       - key: CRM_SYNC_SECRET
         sync: false
