@@ -56,7 +56,7 @@ services:
   - type: cron
     name: bonalti-closer-crm-daily-construction-report
     runtime: node
-    schedule: "10 13 * * *"
+    schedule: "30 13 * * *"
     buildCommand: ""
     startCommand: npm run send:daily-construction
     envVars:
