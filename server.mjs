@@ -412,6 +412,7 @@ async function buildDailyConstructionReport(reportDate) {
     showed: rows.filter((row) => row.attendanceKey === "showed").length,
     noShow: rows.filter((row) => row.attendanceKey === "no_show").length,
     rescheduled: rows.filter((row) => row.attendanceKey === "rescheduled").length,
+    canceled: rows.filter((row) => row.attendanceKey === "canceled").length,
     needsReview: rows.filter((row) => row.attendanceKey === "needs_review").length,
     closed: rows.filter((row) => row.outcomeKey === "closed").length,
   };
@@ -484,7 +485,10 @@ function attendanceForStatus(status) {
   if (status === "reagendo") {
     return { key: "rescheduled", label: "Rescheduled", emoji: "🔁" };
   }
-  return { key: "needs_review", label: "Needs Review", emoji: "⚠️" };
+  if (status === "descalificado") {
+    return { key: "canceled", label: "Canceled / Not Interested", emoji: "🚫" };
+  }
+  return { key: "needs_review", label: "Pending Confirmation", emoji: "⏳" };
 }
 
 function dailyStage(meeting, pipeline, snapshot) {
@@ -640,7 +644,8 @@ function formatDailyConstructionMessage(report) {
     `✅ Showed: ${report.totals.showed}`,
     `❌ No Show: ${report.totals.noShow}`,
     `🔁 Rescheduled: ${report.totals.rescheduled}`,
-    `⚠️ Needs Review: ${report.totals.needsReview}`,
+    `🚫 Canceled / Not Interested: ${report.totals.canceled}`,
+    `⏳ Pending Confirmation: ${report.totals.needsReview}`,
     `🟢 Closed: ${report.totals.closed}`,
   ];
 
@@ -667,7 +672,7 @@ function dailyManagerNote(report) {
   const notes = [];
   if (report.totals.needsReview) {
     const verb = report.totals.needsReview === 1 ? "needs" : "need";
-    notes.push(`${report.totals.needsReview} meeting${plural(report.totals.needsReview)} still ${verb} confirmed attendance.`);
+    notes.push(`${report.totals.needsReview} meeting${plural(report.totals.needsReview)} still ${verb} attendance confirmation.`);
   }
   if (report.totals.noShow) {
     const verb = report.totals.noShow === 1 ? "needs" : "need";
