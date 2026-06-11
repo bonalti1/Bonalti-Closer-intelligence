@@ -157,7 +157,8 @@ const server = http.createServer(async (req, res) => {
       const report = await buildDailyConstructionReport(requestedDate || previousLocalDate());
 
       if (req.method === "POST") {
-        const delivery = await deliverDailyReport(report);
+        const dryRun = ["1", "true", "yes"].includes(cleanText(url.searchParams.get("dryRun")).toLowerCase());
+        const delivery = await deliverDailyReport(report, { dryRun });
         return sendJson(res, { ok: true, report, delivery });
       }
 
@@ -592,7 +593,7 @@ function dailyManagerNote(report) {
   return notes.join(" ") || "Review closer notes and make sure every lead has a next step.";
 }
 
-async function deliverDailyReport(report) {
+async function deliverDailyReport(report, options = {}) {
   if (!config.dailyReportEnabled) {
     return {
       sent: false,
@@ -623,6 +624,20 @@ async function deliverDailyReport(report) {
     return {
       sent: false,
       reason: "DAILY_REPORT_TO is not configured yet.",
+    };
+  }
+
+  if (options.dryRun) {
+    return {
+      sent: false,
+      dryRun: true,
+      channel: "ghl",
+      recipients: recipients.length,
+      results: recipients.map((phone) => ({
+        phone,
+        sent: false,
+        status: "dry_run",
+      })),
     };
   }
 
