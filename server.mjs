@@ -448,7 +448,7 @@ function summarizeConstructionMeeting(meeting, context) {
     outcomeKey: outcomeKeyForStage(stage, meeting),
     outcomeLabel: outcomeLabelForStage(stage, meeting),
     stage,
-    note: latestNote || "No note yet.",
+    note: latestNote || "Note does not appear.",
     nextStep: nextStepForMeeting(meeting, stage, attendance.key),
   };
 }
@@ -564,8 +564,7 @@ function formatDailyConstructionMessage(report) {
     company.meetings.forEach((meeting, index) => {
       lines.push(
         `${index + 1}. ${meeting.clientName} — ${meeting.attendanceEmoji} ${meeting.attendanceLabel} / ${meeting.outcomeLabel}`,
-        `Note: ${meeting.note}`,
-        `Next: ${meeting.nextStep}`
+        `Note: ${meeting.note}`
       );
     });
   }
