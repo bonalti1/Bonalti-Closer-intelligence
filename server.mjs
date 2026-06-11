@@ -279,6 +279,14 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, result);
     }
 
+    if (url.pathname.startsWith("/api/")) {
+      return sendJson(res, { error: "API route not found or method not allowed." }, 404);
+    }
+
+    if (url.pathname === "/favicon.ico") {
+      return sendText(res, "", "image/x-icon", 204);
+    }
+
     const filePath = safePublicPath(url.pathname);
     const body = await readFile(filePath);
     const ext = path.extname(filePath).toLowerCase();
